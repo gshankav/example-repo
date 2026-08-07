@@ -1,0 +1,19 @@
+{
+  "_comment": [
+    "MSTR bitcoin treasury and share count, used to compute mNAV (market cap / BTC NAV).",
+    "There is no free, stable API for these, so they live here and are refreshed by hand",
+    "from the latest 8-K / 10-Q, or injected at runtime via the MSTR_BTC_HOLDINGS,",
+    "MSTR_DILUTED_SHARES and MSTR_HOLDINGS_AS_OF environment variables.",
+    "",
+    "IMPORTANT: the values below are UNVERIFIED starting placeholders. Update them from",
+    "a primary source before trusting the mNAV section of the report. The report shows the",
+    "'as_of' date on every run and prints a prominent warning once the data goes stale or",
+    "while 'verified' is false."
+  ],
+  "btc_holdings": 653000,
+  "diluted_shares": 285000000,
+  "as_of": "2026-08-01",
+  "verified": false,
+  "source": "UNVERIFIED placeholder - update from latest 8-K/10-Q",
+  "stale_after_days": 45
+}

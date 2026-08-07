@@ -1,0 +1,93 @@
+name: Daily price report
+
+on:
+  schedule:
+    # 23:00 UTC daily - after the US equity close so MSTR's closing print has
+    # settled at the data providers. GitHub may delay scheduled runs under load.
+    - cron: "0 23 * * *"
+  workflow_dispatch:
+    inputs:
+      send_email:
+        description: "Send the email (uncheck for a dry run)"
+        type: boolean
+        default: true
+
+concurrency:
+  group: daily-price-report
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: |
+          pip install pytest
+          python -m pytest tests -q
+
+      - name: Run model and send report
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_SENDER: ${{ secrets.SMTP_SENDER }}
+          REPORT_RECIPIENTS: ${{ secrets.REPORT_RECIPIENTS }}
+          # Optional overrides so the treasury figures can be refreshed without
+          # editing config/holdings.json.
+          MSTR_BTC_HOLDINGS: ${{ vars.MSTR_BTC_HOLDINGS }}
+          MSTR_DILUTED_SHARES: ${{ vars.MSTR_DILUTED_SHARES }}
+          MSTR_HOLDINGS_AS_OF: ${{ vars.MSTR_HOLDINGS_AS_OF }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] \
+             && [ "${{ inputs.send_email }}" != "true" ]; then
+            python -m pricemodel.cli --no-email
+          else
+            python -m pricemodel.cli
+          fi
+
+      - name: Commit report and forecast history
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add reports history
+          if git diff --staged --quiet; then
+            echo "nothing to commit"
+            exit 0
+          fi
+          git commit -m "Daily price report $(date -u +%Y-%m-%d)"
+          # The scheduled job is the only writer, but a manual run can race it.
+          for attempt in 1 2 3; do
+            if git push; then exit 0; fi
+            echo "push failed (attempt $attempt), rebasing on origin"
+            git pull --rebase origin "${GITHUB_REF_NAME}" || true
+            sleep $((attempt * 3))
+          done
+          echo "could not push report" >&2
+          exit 1
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: price-report
+          path: reports/latest.*
+          if-no-files-found: warn
+          retention-days: 30
