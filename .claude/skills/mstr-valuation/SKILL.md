@@ -36,9 +36,11 @@ python .claude/skills/mstr-valuation/scripts/mstr_valuation.py --offline  # synt
 python .claude/skills/mstr-valuation/scripts/mstr_valuation.py --json     # machine-readable
 ```
 
-The script reuses this repo's own fetchers and `compute_mnav`, then adds the
-layers the repo's report leaves out (debt, preferreds, per-share BTC,
-sensitivity). Override any input to test a scenario:
+The arithmetic lives in `pricemodel/valuation.py`; the script only fetches
+inputs and renders. The web app (`python -m pricemodel.web`) is the same module
+behind an interactive page — use it when the question is exploratory ("what if
+BTC doubles") and the CLI when you want a number to paste. Override any input to
+test a scenario:
 
 ```bash
 ... --btc-price 150000 --mstr-price 600 --btc-holdings 700000
@@ -121,11 +123,19 @@ That gap is sentiment, not balance sheet, and it's the part that mean-reverts.
 
 | Concern | Location |
 | --- | --- |
-| mNAV math and history | `pricemodel/model.py:compute_mnav` |
+| Gross mNAV math and history | `pricemodel/model.py:compute_mnav` |
+| Net NAV, capital structure, sensitivity | `pricemodel/valuation.py` |
+| Convert and preferred terms | `config/capital_structure.json` |
 | Treasury inputs, staleness, env overrides | `pricemodel/config.py:MstrHoldings`, `load_holdings` |
 | SEC share-count refinement | `pricemodel/data.py:fetch_shares_outstanding` |
-| Report rendering | `pricemodel/report.py:_mnav_block` |
-| Tests | `tests/test_model.py` (`test_mnav_*`) |
+| Email report rendering | `pricemodel/report.py:_mnav_block` |
+| Web app (`/` valuation, `/report` dashboard) | `pricemodel/web.py`, `pricemodel/static/` |
+| Tests | `tests/test_valuation.py`, `tests/test_web.py`, `tests/test_model.py` (`test_mnav_*`) |
+
+The valuation arithmetic has exactly one home — `pricemodel/valuation.py`. The
+CLI script, the web app and the daily report all call into it, so a fix lands
+everywhere at once. Resist recomputing any of it in a template or in JavaScript;
+a second copy is a second answer.
 
 Repo conventions worth matching: cross-asset math runs on `data.align`, never on
 positional slices, because MSTR doesn't trade weekends and BTC does — zipping

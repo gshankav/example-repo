@@ -64,18 +64,19 @@ that pattern for any input you add — degrade visibly, never silently.
 ## Capital structure
 
 Convertible notes and preferreds are not in `config/holdings.json` at all, which
-is why the repo's mNAV is gross-only. The script reads them from, in order:
+is why the daily report's mNAV is gross-only. They live in
+`config/capital_structure.json`, read by `pricemodel.valuation.load_capital_structure`
+(the CLI's `--capital-structure PATH` overrides it).
 
-1. `--capital-structure PATH`
-2. `config/capital_structure.json`, if it exists
-3. `assets/capital_structure.example.json` in this skill — **placeholders**, and
-   the script says so on every run that uses them
+The file ships with **placeholders** — structurally realistic so the app runs out
+of the box, sourced from no filing — and every surface says UNVERIFIED until you
+fix that. Fill it from the most recent 10-Q: the debt footnote gives face value,
+conversion price and maturity per note series; the equity footnote and cover page
+give preferred liquidation preference and dividend rate. Set `"verified": true`
+only once the numbers came from a filing you actually opened.
 
-To do this properly, copy the example to `config/capital_structure.json` and
-fill it from the most recent 10-Q. The debt footnote gives face value,
-conversion price and maturity per note series; the equity footnote and cover
-page give preferred liquidation preference and dividend rate. Set
-`"verified": true` only once the numbers came from a filing you actually opened.
+If the file is missing entirely, valuation degrades to gross-only (net NAV equals
+BTC NAV) and says so, rather than failing.
 
 Convert terms change: issuers repurchase notes, holders convert early, and new
 series get issued several times a year. A capital structure more than one

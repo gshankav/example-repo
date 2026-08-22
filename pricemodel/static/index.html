@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MSTR valuation</title>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>₿</text></svg>">
+</head>
+<body>
+<div class="wrap">
+  <header class="bar">
+    <h1>MSTR valuation</h1>
+    <span class="sub" id="meta-line">loading…</span>
+    <nav>
+      <a href="/" aria-current="page">Valuation</a>
+      <a href="/report">Daily report</a>
+      <button class="ghost" id="refresh" title="Refetch prices">Refresh</button>
+      <button class="ghost" id="theme-toggle">Dark</button>
+    </nav>
+  </header>
+
+  <div id="warnings"></div>
+
+  <div class="card">
+    <h2>Inputs</h2>
+    <div class="controls">
+      <div class="field" id="f-btc_price">
+        <label for="btc_price">BTC price</label>
+        <input type="number" id="btc_price" step="100" min="1">
+        <input type="range" id="btc_price_r" min="0" max="100" value="50"
+               aria-label="BTC price slider">
+        <div class="hint" id="h-btc_price"></div>
+      </div>
+      <div class="field" id="f-mstr_price">
+        <label for="mstr_price">MSTR price</label>
+        <input type="number" id="mstr_price" step="1" min="0.01">
+        <input type="range" id="mstr_price_r" min="0" max="100" value="50"
+               aria-label="MSTR price slider">
+        <div class="hint" id="h-mstr_price"></div>
+      </div>
+      <div class="field" id="f-btc_holdings">
+        <label for="btc_holdings">BTC held</label>
+        <input type="number" id="btc_holdings" step="1000" min="1">
+        <div class="hint" id="h-btc_holdings"></div>
+      </div>
+      <div class="field" id="f-shares">
+        <label for="shares">Shares outstanding</label>
+        <input type="number" id="shares" step="1000000" min="1">
+        <div class="hint" id="h-shares"></div>
+      </div>
+    </div>
+    <p class="note">
+      Every figure below recomputes from these four inputs plus
+      <code>config/capital_structure.json</code>. The maths runs in Python
+      (<code>pricemodel/valuation.py</code>) — the same module the CLI report and
+      the valuation skill use, so nothing here can drift from them.
+      <button class="ghost" id="reset" hidden>Reset to spot</button>
+    </p>
+  </div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="grid cols-2" style="margin-top:18px">
+    <div class="card">
+      <h2>Gross — market cap vs the bitcoin</h2>
+      <dl class="kv" id="kv-gross"></dl>
+    </div>
+    <div class="card">
+      <h2>Net — after claims ranking ahead of common</h2>
+      <dl class="kv" id="kv-net"></dl>
+      <p class="note" id="note-notes"></p>
+    </div>
+  </div>
+
+  <div class="grid cols-2">
+    <div class="card">
+      <h2>Per share</h2>
+      <dl class="kv" id="kv-share"></dl>
+      <p class="note">
+        Issuing equity above 1.0x gross mNAV raises BTC per share; below 1.0x it
+        lowers it. That inequality is the whole ATM-at-a-premium strategy.
+      </p>
+    </div>
+    <div class="card">
+      <h2>Leverage</h2>
+      <dl class="kv" id="kv-lev"></dl>
+      <p class="note">
+        Structural leverage is mechanical and persistent. The realized beta
+        usually runs above it, and that gap is the premium expanding and
+        compressing — sentiment, not balance sheet.
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Sensitivity — implied MSTR price</h2>
+    <div class="scroll-x"><table class="heat" id="heat"></table></div>
+    <div class="scale" id="scale"></div>
+    <p class="note">
+      Columns are assumed multiples, not forecasts, and cells are shaded by
+      return against today's MSTR price. BTC and the multiple contribute
+      comparably: BTC doubling at half the multiple leaves you flat. The capital
+      structure is held at its current debt/equity split, so the far corners are
+      indicative.
+    </p>
+  </div>
+
+  <footer>For information only. Not investment advice.</footer>
+</div>
+<script type="module" src="/static/valuation.js"></script>
+</body>
+</html>

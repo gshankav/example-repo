@@ -51,6 +51,10 @@ You can also override without a commit via **Settings → Secrets and variables 
 Actions → Variables**: `MSTR_BTC_HOLDINGS`, `MSTR_DILUTED_SHARES`,
 `MSTR_HOLDINGS_AS_OF`.
 
+`config/capital_structure.json` holds the convertible notes and preferred stock
+used by the valuation page. It ships with placeholders too, and net-NAV figures
+stay labelled UNVERIFIED until you replace them from the latest 10-Q.
+
 ### 3. Check it works
 
 Run the workflow manually from the **Actions** tab — *Daily price report* →
@@ -61,6 +65,31 @@ After that it runs on its own at **23:00 UTC daily**, chosen so MSTR's closing
 price has settled. GitHub delays scheduled jobs under load, so expect some
 drift. If a run fails, GitHub emails the repository owner by default.
 
+## The web app
+
+Two browsable views over the same model, with no extra dependencies — it runs on
+`http.server`, so `requirements.txt` stays at numpy and requests.
+
+```bash
+python -m pricemodel.web              # http://127.0.0.1:8000
+python -m pricemodel.web --offline    # synthetic data, no network
+```
+
+| Route | What it is |
+| --- | --- |
+| `/` | **MSTR valuation.** Move BTC price, MSTR price, coins held or share count and watch gross and net mNAV, BTC per share, implied BTC price, leverage and a BTC-price × multiple sensitivity grid recompute |
+| `/report` | **Daily report as a dashboard.** The emailed report, browsable: prices with sparklines, the Monte Carlo forecast fan, technical position, cross-asset stats, mNAV and the scorecard |
+| `/api/value`, `/api/report` | The same payloads as JSON, for scripting |
+
+The valuation maths runs in Python (`pricemodel/valuation.py`) and the browser
+only renders it, so the page, the CLI and the report cannot drift apart. Prices
+are cached for 15 minutes (`--ttl`) because free endpoints rate-limit and a
+slider would otherwise refetch on every move; **Refresh** forces a refetch.
+
+It binds to localhost, has no authentication, and serves treasury figures that
+are unverified until you fix them — it is a local analysis tool, not a service.
+Don't expose it.
+
 ## Running locally
 
 ```bash
@@ -69,6 +98,7 @@ pip install -r requirements.txt
 python -m pricemodel.cli --offline --no-email   # synthetic data, no network
 python -m pricemodel.cli --no-email             # live data, no email
 python -m pricemodel.cli                        # full run (needs SMTP env vars)
+python -m pricemodel.web --offline              # the web app, no network
 ```
 
 Useful flags: `--paths N` (Monte Carlo path count), `--no-record` (don't append
@@ -115,14 +145,25 @@ percentile holds today's BTC and share counts constant, so it shows how the
 *premium* moved with BTC's price rather than reconstructing the true historical
 treasury — a comparison aid, not a restatement.
 
+**Net of the capital structure.** The emailed report stops at gross mNAV.
+`pricemodel/valuation.py` continues: it subtracts convertible debt and preferred
+liquidation preference to get net NAV to common, adds BTC per share and the
+structural leverage that follows from the claims. Convert terms come from
+`config/capital_structure.json` (placeholders until you fill them from a 10-Q).
+A note is treated as equity above its conversion price and as debt below it,
+never as both — counting the face *and* the shares is the classic double-count.
+Available at `/` in the web app and from the `mstr-valuation` skill's CLI.
+
 ## Limitations
 
 - The forecast is a volatility model, not an alpha model. It describes a plausible
   range of outcomes given recent volatility; it has no view on where price is going.
   Treat the median as "roughly spot", because that is essentially what it is.
 - No fundamentals, flows, funding rates, options-implied volatility, or news.
-- mNAV ignores MSTR's convertible debt and preferred stock, so it measures the
-  premium to gross bitcoin value rather than to equity value net of liabilities.
+- The emailed report's mNAV ignores MSTR's convertible debt and preferred stock,
+  measuring the premium to gross bitcoin value rather than to equity value net of
+  liabilities. The web app's valuation page nets them off, but only as accurately
+  as `config/capital_structure.json` is kept up to date.
 - Free data sources occasionally disagree at the margin and revise.
 - The forecast scorecard needs weeks of runs before its sample size means much.
 

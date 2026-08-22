@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daily price report</title>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>₿</text></svg>">
+</head>
+<body>
+<div class="wrap">
+  <header class="bar">
+    <h1>Daily price report</h1>
+    <span class="sub" id="meta-line">loading…</span>
+    <nav>
+      <a href="/">Valuation</a>
+      <a href="/report" aria-current="page">Daily report</a>
+      <button class="ghost" id="refresh" title="Refetch prices">Refresh</button>
+      <button class="ghost" id="theme-toggle">Dark</button>
+    </nav>
+  </header>
+
+  <div id="warnings"></div>
+  <div class="loading" id="loading">Fetching prices and running the model…</div>
+
+  <div id="assets" class="grid cols-3"></div>
+
+  <div class="card">
+    <h2>Forward distribution — Monte Carlo, 20k paths</h2>
+    <div class="grid cols-3" id="fans"></div>
+    <p class="note">
+      A volatility model, not an alpha model: it describes a plausible range
+      given recent volatility and has no view on direction. Read the median as
+      roughly spot, because that is essentially what it is.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Technical position</h2>
+    <div class="scroll-x"><table id="tech"></table></div>
+  </div>
+
+  <div class="grid cols-2">
+    <div class="card">
+      <h2>Cross-asset</h2>
+      <div class="scroll-x"><table id="cross"></table></div>
+      <p class="note">
+        Computed on date-aligned returns — MSTR doesn't trade weekends and
+        crypto does, so a positional comparison would line Saturday's BTC move
+        up against Monday's MSTR move.
+      </p>
+    </div>
+    <div class="card">
+      <h2>MSTR mNAV</h2>
+      <div id="mnav"></div>
+      <p class="note">
+        Gross mNAV — market cap against bitcoin value, ignoring convertible debt
+        and preferred stock. The <a href="/">valuation page</a> nets those off.
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Forecast scorecard</h2>
+    <div class="scroll-x"><table id="score"></table></div>
+    <p class="note" id="score-note"></p>
+  </div>
+
+  <footer>For information only. Not investment advice.</footer>
+</div>
+<script type="module" src="/static/report.js"></script>
+</body>
+</html>

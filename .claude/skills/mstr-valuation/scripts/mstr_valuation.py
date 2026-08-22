@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Full MSTR valuation: gross mNAV, net-of-claims NAV, BTC per share, sensitivity.
 
-The repo's daily report computes gross mNAV only - market cap against the market
-value of the bitcoin, with convertible debt and preferred stock ignored. This
-script reuses that machinery (same fetchers, same ``compute_mnav``) and adds the
-layers the report leaves out, so the valuation and the daily report can never
-disagree about the part they share.
+A command-line front end over ``pricemodel.valuation``. The arithmetic lives in
+the package, not here, so this script, the web app and the daily report can
+never disagree about the same number - this file only fetches inputs and renders
+the result.
 
     python scripts/mstr_valuation.py                     # live data
     python scripts/mstr_valuation.py --offline           # synthetic, no network
@@ -22,8 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -39,7 +37,6 @@ def _find_repo_root(start: Path) -> Path:
 
 
 REPO_ROOT = _find_repo_root(Path(__file__).resolve())
-SKILL_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from pricemodel.config import ASSETS, DEFAULT_PARAMS, load_holdings  # noqa: E402
@@ -50,221 +47,13 @@ from pricemodel.data import (  # noqa: E402
     fetch_shares_outstanding,
 )
 from pricemodel.model import build_cross_asset, compute_mnav  # noqa: E402
-
-# Scenario axes for the sensitivity grid. The BTC moves are deliberately
-# asymmetric to the upside because that is the shape of the asset's own
-# distribution; the multiples span roughly the observed historical range.
-BTC_SCENARIOS = (-0.50, -0.25, 0.0, 0.25, 0.50, 1.00)
-MNAV_SCENARIOS = (0.8, 1.0, 1.5, 2.0, 2.5)
-
-
-# --------------------------------------------------------------------------
-# Capital structure
-# --------------------------------------------------------------------------
-
-
-@dataclass
-class ConvertibleNote:
-    name: str
-    face_usd: float
-    conversion_price: float
-    shares_if_converted: float
-    maturity: str = ""
-
-    def is_equity_like(self, mstr_price: float) -> bool:
-        """In the money means the note behaves as equity, not as debt.
-
-        This branch is the whole point of the class. A note counted as debt
-        *and* as shares is charged for twice, which is the most common way an
-        MSTR net-NAV calculation goes wrong.
-        """
-        return self.conversion_price > 0 and mstr_price >= self.conversion_price
-
-
-@dataclass
-class Preferred:
-    name: str
-    liquidation_preference_usd: float
-    annual_dividend_usd: float = 0.0
-
-
-@dataclass
-class CapitalStructure:
-    notes: list[ConvertibleNote] = field(default_factory=list)
-    preferred: list[Preferred] = field(default_factory=list)
-    cash_usd: float = 0.0
-    other_assets_usd: float = 0.0
-    as_of: date = date(1970, 1, 1)
-    verified: bool = False
-    source: str = "unknown"
-    stale_after_days: int = 100
-    path: str = ""
-
-    def days_old(self, today: date) -> int:
-        return (today - self.as_of).days
-
-    def is_stale(self, today: date) -> bool:
-        return self.days_old(today) > self.stale_after_days
-
-    @property
-    def preferred_claim(self) -> float:
-        return sum(p.liquidation_preference_usd for p in self.preferred)
-
-    @property
-    def preferred_dividends(self) -> float:
-        return sum(p.annual_dividend_usd for p in self.preferred)
-
-
-def load_capital_structure(explicit: Path | None) -> CapitalStructure:
-    """Explicit path, then the repo's config, then this skill's placeholders.
-
-    The fallback is what makes the script runnable out of the box, so it has to
-    be loud about being placeholder data - see the warnings assembled in main().
-    """
-    for path in (
-        explicit,
-        REPO_ROOT / "config" / "capital_structure.json",
-        SKILL_DIR / "assets" / "capital_structure.example.json",
-    ):
-        if path and path.exists():
-            break
-    else:  # pragma: no cover - the bundled example always exists
-        raise SystemExit("no capital structure file found")
-
-    raw = json.loads(path.read_text())
-    notes = []
-    for n in raw.get("convertible_notes", []):
-        face = float(n["face_usd"])
-        k = float(n["conversion_price"])
-        notes.append(
-            ConvertibleNote(
-                name=n.get("name", "convertible note"),
-                face_usd=face,
-                conversion_price=k,
-                shares_if_converted=float(
-                    n.get("shares_if_converted") or (face / k if k else 0.0)
-                ),
-                maturity=n.get("maturity", ""),
-            )
-        )
-    return CapitalStructure(
-        notes=notes,
-        preferred=[
-            Preferred(
-                name=p.get("name", "preferred"),
-                liquidation_preference_usd=float(p["liquidation_preference_usd"]),
-                annual_dividend_usd=float(p.get("annual_dividend_usd", 0.0)),
-            )
-            for p in raw.get("preferred", [])
-        ],
-        cash_usd=float(raw.get("cash_usd", 0.0)),
-        other_assets_usd=float(raw.get("other_assets_usd", 0.0)),
-        as_of=datetime.strptime(raw["as_of"], "%Y-%m-%d").date(),
-        verified=bool(raw.get("verified", False)),
-        source=raw.get("source", "unknown"),
-        stale_after_days=int(raw.get("stale_after_days", 100)),
-        path=str(path),
-    )
-
-
-# --------------------------------------------------------------------------
-# Valuation
-# --------------------------------------------------------------------------
-
-
-def value(
-    btc_price: float,
-    mstr_price: float,
-    btc_holdings: float,
-    basic_shares: float,
-    cap: CapitalStructure,
-) -> dict[str, Any]:
-    """Every figure the report needs, from five inputs and a capital structure."""
-    equity_like = [n for n in cap.notes if n.is_equity_like(mstr_price)]
-    debt_like = [n for n in cap.notes if not n.is_equity_like(mstr_price)]
-
-    convert_shares = sum(n.shares_if_converted for n in equity_like)
-    diluted_shares = basic_shares + convert_shares
-    debt_claim = sum(n.face_usd for n in debt_like)
-
-    btc_nav = btc_holdings * btc_price
-    non_btc_assets = cap.cash_usd + cap.other_assets_usd
-    net_nav = btc_nav + non_btc_assets - debt_claim - cap.preferred_claim
-
-    market_cap_basic = mstr_price * basic_shares
-    market_cap_diluted = mstr_price * diluted_shares
-
-    gross_nav_ps_basic = btc_nav / basic_shares
-    gross_nav_ps_diluted = btc_nav / diluted_shares
-    net_nav_ps = net_nav / diluted_shares
-
-    # EV adds the claims that were treated as debt; the equity-like converts are
-    # already inside the diluted market cap, so adding their face too would be
-    # the same double-count the branch above exists to avoid.
-    enterprise_value = (
-        market_cap_diluted + debt_claim + cap.preferred_claim - cap.cash_usd
-    )
-
-    return {
-        "btc_price": btc_price,
-        "mstr_price": mstr_price,
-        "btc_holdings": btc_holdings,
-        "basic_shares": basic_shares,
-        "convert_shares": convert_shares,
-        "diluted_shares": diluted_shares,
-        "equity_like_notes": [n.name for n in equity_like],
-        "debt_like_notes": [n.name for n in debt_like],
-        "btc_nav": btc_nav,
-        "non_btc_assets": non_btc_assets,
-        "debt_claim": debt_claim,
-        "preferred_claim": cap.preferred_claim,
-        "preferred_dividends": cap.preferred_dividends,
-        "net_nav": net_nav,
-        "market_cap_basic": market_cap_basic,
-        "market_cap_diluted": market_cap_diluted,
-        "enterprise_value": enterprise_value,
-        "gross_nav_per_share_basic": gross_nav_ps_basic,
-        "gross_nav_per_share_diluted": gross_nav_ps_diluted,
-        "net_nav_per_share": net_nav_ps,
-        "gross_mnav_basic": mstr_price / gross_nav_ps_basic,
-        "gross_mnav_diluted": mstr_price / gross_nav_ps_diluted,
-        "net_mnav": (mstr_price / net_nav_ps) if net_nav_ps > 0 else None,
-        "ev_to_btc_nav": enterprise_value / btc_nav,
-        "btc_per_share": btc_holdings / diluted_shares,
-        "sats_per_share": btc_holdings / diluted_shares * 1e8,
-        # What BTC price makes market cap equal the bitcoin backing - i.e. the
-        # BTC price the equity is already pricing in.
-        "btc_price_at_par": mstr_price * diluted_shares / btc_holdings,
-        # Where senior claims would consume the whole treasury. A structural
-        # reference point, not a margin call: these are unsecured obligations.
-        "btc_price_at_zero_net_nav": max(
-            0.0, (debt_claim + cap.preferred_claim - cap.cash_usd) / btc_holdings
-        ),
-        # Equity's mechanical sensitivity to BTC with the multiple held fixed.
-        "structural_leverage": (btc_nav / net_nav) if net_nav > 0 else None,
-    }
-
-
-def sensitivity(v: dict[str, Any]) -> list[dict[str, Any]]:
-    """Implied MSTR price across BTC moves and multiples.
-
-    The capital structure branch is held at today's state; a scenario far enough
-    from spot would flip notes between debt and equity, so treat the extremes as
-    indicative.
-    """
-    rows = []
-    for move in BTC_SCENARIOS:
-        px = v["btc_price"] * (1 + move)
-        nav_ps = v["btc_holdings"] * px / v["diluted_shares"]
-        rows.append(
-            {
-                "btc_move": move,
-                "btc_price": px,
-                "gross_nav_per_share": nav_ps,
-                "implied": {m: m * nav_ps for m in MNAV_SCENARIOS},
-            }
-        )
-    return rows
+from pricemodel.valuation import (  # noqa: E402
+    MNAV_SCENARIOS,
+    CapitalStructure,
+    load_capital_structure,
+    sensitivity,
+    value,
+)
 
 
 # --------------------------------------------------------------------------
@@ -387,7 +176,7 @@ def render(
     header = "  BTC price   " + "".join(f"{m:>10.1f}x" for m in MNAV_SCENARIOS)
     add(header)
     for row in sensitivity(v):
-        cells = "".join(f"{_px(row['implied'][m]):>11}" for m in MNAV_SCENARIOS)
+        cells = "".join(f"{_px(row['implied'][str(m)]):>11}" for m in MNAV_SCENARIOS)
         add(f"  {_px(row['btc_price']):>10}{cells}   ({row['btc_move']:+.0%})")
     add("  Columns are assumed multiples, not forecasts. BTC and the multiple")
     add("  contribute comparably: BTC doubling at half the multiple leaves you flat.")

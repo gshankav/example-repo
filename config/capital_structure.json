@@ -1,0 +1,50 @@
+{
+  "_comment": [
+    "MSTR capital structure: claims that rank ahead of common stock. Consumed by",
+    "pricemodel/valuation.py (net NAV, net mNAV, structural leverage), which the",
+    "web app and the mstr-valuation skill both build on. The daily report in",
+    "pricemodel/cli.py does not read this file - its mNAV is gross by design.",
+    "",
+    "IMPORTANT: every figure below is an UNVERIFIED PLACEHOLDER, shaped to be",
+    "structurally realistic so the app runs out of the box, and not sourced from",
+    "any filing. Replace these from the most recent 10-Q and set 'verified': true",
+    "before quoting any net-NAV number. Until then every surface says UNVERIFIED.",
+    "",
+    "Convertible notes: 'face_usd' is principal outstanding, 'conversion_price' is",
+    "the price per share at which the note converts. Shares are derived as",
+    "face_usd / conversion_price unless 'shares_if_converted' is given. A note is",
+    "treated as equity when MSTR trades at or above its conversion price and as",
+    "debt otherwise - never as both, which would charge for it twice.",
+    "",
+    "Preferred: 'liquidation_preference_usd' is the total claim ranking ahead of",
+    "common. 'annual_dividend_usd' is not subtracted from NAV (it is a flow, not a",
+    "claim on assets) but is reported as a recurring drain on the treasury."
+  ],
+  "convertible_notes": [
+    {
+      "name": "PLACEHOLDER 0% Convertible Notes due 2029",
+      "face_usd": 3000000000,
+      "conversion_price": 672.0,
+      "maturity": "2029-12-01"
+    },
+    {
+      "name": "PLACEHOLDER 0.625% Convertible Notes due 2030",
+      "face_usd": 2000000000,
+      "conversion_price": 1500.0,
+      "maturity": "2030-09-15"
+    }
+  ],
+  "preferred": [
+    {
+      "name": "PLACEHOLDER Perpetual Preferred",
+      "liquidation_preference_usd": 5000000000,
+      "annual_dividend_usd": 400000000
+    }
+  ],
+  "cash_usd": 500000000,
+  "other_assets_usd": 1000000000,
+  "as_of": "2026-08-01",
+  "verified": false,
+  "source": "UNVERIFIED placeholder - replace with figures from the latest 10-Q",
+  "stale_after_days": 100
+}
