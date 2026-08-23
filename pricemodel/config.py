@@ -119,6 +119,61 @@ def load_holdings(path: Path | None = None) -> MstrHoldings:
     )
 
 
+@dataclass(frozen=True)
+class PriceSnapshot:
+    """Spot prices pinned at a moment, with no history behind them.
+
+    The fetchers deliberately fail loudly when no source answers, because a
+    valuation quietly computed on yesterday's price is worse than no valuation.
+    A snapshot is the explicit opt-out from that rule: it loads only when asked
+    for by name, and every surface that uses it is expected to say so.
+
+    Spot only. Moving averages, volatility, correlations and the Monte Carlo
+    forecast all need a real series, so those stay unavailable rather than being
+    reconstructed from one point.
+    """
+
+    prices: dict[str, float]
+    quoted_at: dict[str, str]
+    notes: dict[str, str]
+    as_of: date
+    source: str
+    requested_for: str = ""
+
+    def price(self, key: str) -> float:
+        try:
+            return self.prices[key]
+        except KeyError:
+            raise KeyError(f"snapshot has no price for {key!r}") from None
+
+
+def load_price_snapshot(path: Path | None = None) -> PriceSnapshot:
+    path = path or CONFIG_DIR / "price_snapshot.json"
+    raw = json.loads(path.read_text())
+    entries = raw["prices"]
+    prices, quoted_at, notes = {}, {}, {}
+    for key, entry in entries.items():
+        # Accept either a bare number or an annotated object, so a hand-written
+        # snapshot stays cheap to produce.
+        if isinstance(entry, (int, float)):
+            prices[key] = float(entry)
+            quoted_at[key], notes[key] = raw.get("as_of", ""), ""
+        else:
+            prices[key] = float(entry["price"])
+            quoted_at[key] = entry.get("quoted_at", raw.get("as_of", ""))
+            notes[key] = entry.get("note", "")
+        if prices[key] <= 0:
+            raise ValueError(f"snapshot price for {key} must be positive")
+    return PriceSnapshot(
+        prices=prices,
+        quoted_at=quoted_at,
+        notes=notes,
+        as_of=datetime.strptime(raw["as_of"], "%Y-%m-%d").date(),
+        source=raw.get("source", "price snapshot"),
+        requested_for=raw.get("requested_for", ""),
+    )
+
+
 @dataclass
 class EmailConfig:
     host: str

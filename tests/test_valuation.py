@@ -275,3 +275,54 @@ def test_unverified_structure_is_flagged(cap):
 def test_stale_structure_is_flagged(cap):
     assert warnings_for(cap, date(2027, 8, 22))  # far past stale_after_days
     assert not warnings_for(cap, date(2026, 8, 22))
+
+
+# --- the shipped configuration --------------------------------------------
+
+
+def test_shipped_capital_structure_is_all_debt_at_current_prices():
+    """Every convert series strikes far above where MSTR trades, so none dilute.
+
+    If this ever flips, the net-NAV figures change character completely - the
+    face value stops being subtracted and the share count jumps - so it is worth
+    a test rather than an assumption.
+    """
+    cap = load_capital_structure()
+    v = value(
+        btc_price=72_944.28, mstr_price=119.25,
+        btc_holdings=840_447, basic_shares=364_580_000, cap=cap,
+    )
+    assert v["equity_like_notes"] == []
+    assert v["convert_shares"] == 0
+    assert v["diluted_shares"] == v["basic_shares"]
+    assert v["debt_claim"] == pytest.approx(6.7e9)
+
+
+def test_shipped_config_reproduces_the_sourced_valuation():
+    """Guards the sourced inputs against a careless edit.
+
+    The expected values were cross-checked against independently reported
+    figures: a gross multiple deep in discount territory, and a net multiple
+    near parity, which is what 'enterprise mNAV just above parity' means.
+    """
+    cap = load_capital_structure()
+    v = value(
+        btc_price=72_944.28, mstr_price=119.25,
+        btc_holdings=840_447, basic_shares=364_580_000, cap=cap,
+    )
+    assert v["gross_mnav_diluted"] == pytest.approx(0.709, abs=0.005)
+    assert v["net_mnav"] == pytest.approx(0.990, abs=0.005)
+    assert v["btc_per_share"] == pytest.approx(0.0023052, abs=1e-6)
+    assert v["btc_price_at_par"] == pytest.approx(51_730, rel=1e-3)
+    assert v["structural_leverage"] == pytest.approx(1.396, abs=0.005)
+
+
+def test_discount_makes_even_a_sub_par_multiple_imply_upside():
+    """At 0.71x, an assumed 0.8x multiple is still above today's price."""
+    cap = load_capital_structure()
+    v = value(
+        btc_price=72_944.28, mstr_price=119.25,
+        btc_holdings=840_447, basic_shares=364_580_000, cap=cap,
+    )
+    spot_row = next(r for r in sensitivity(v) if r["btc_move"] == 0.0)
+    assert spot_row["returns"]["0.8"] > 0

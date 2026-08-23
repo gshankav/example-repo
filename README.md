@@ -37,10 +37,12 @@ rejected.
 
 ### 2. Update the MSTR treasury figures
 
-`config/holdings.json` ships with **unverified placeholder values** and the
-report says so on every run until you fix them. mNAV is meaningless until you
-do. Update `btc_holdings`, `diluted_shares` and `as_of` from Strategy's latest
-8-K or 10-Q, and set `"verified": true`.
+`config/holdings.json` carries **real figures current to 22 August 2026** —
+840,447 BTC and 364.58M shares — gathered from public reporting rather than read
+out of a filing. They are therefore still marked `"verified": false`, and every
+surface says UNVERIFIED until someone confirms them against the latest 8-K or
+10-Q and flips the flag. The flag means "checked against a primary source", and
+second-hand figures don't clear that bar however plausible they look.
 
 The share count is refined automatically from the SEC XBRL API on each run when
 a newer filing is available; the BTC count has no free API and must be updated
@@ -52,8 +54,16 @@ Actions → Variables**: `MSTR_BTC_HOLDINGS`, `MSTR_DILUTED_SHARES`,
 `MSTR_HOLDINGS_AS_OF`.
 
 `config/capital_structure.json` holds the convertible notes and preferred stock
-used by the valuation page. It ships with placeholders too, and net-NAV figures
-stay labelled UNVERIFIED until you replace them from the latest 10-Q.
+used by the valuation page — currently $6.7B of converts and $15.5B of preferred,
+on the same second-hand basis, so net-NAV figures stay labelled UNVERIFIED until
+you confirm them from the latest 10-Q. At today's share price every convert
+series strikes far out of the money, so all of it counts as debt and none of it
+dilutes; a test pins that so the assumption can't rot silently.
+
+`config/price_snapshot.json` pins a set of spot prices (BTC $72,944, ETH $2,425,
+MSTR $119.25 — the Friday close, since 22 August 2026 is a Saturday). It is never
+used automatically: the fetchers fail loudly rather than serve stale prices, so
+it loads only behind `--snapshot`, and everything that uses it says so.
 
 ### 3. Check it works
 
@@ -73,6 +83,7 @@ Two browsable views over the same model, with no extra dependencies — it runs 
 ```bash
 python -m pricemodel.web              # http://127.0.0.1:8000
 python -m pricemodel.web --offline    # synthetic data, no network
+python -m pricemodel.web --snapshot   # pinned real prices, no network
 ```
 
 | Route | What it is |
@@ -85,6 +96,14 @@ The valuation maths runs in Python (`pricemodel/valuation.py`) and the browser
 only renders it, so the page, the CLI and the report cannot drift apart. Prices
 are cached for 15 minutes (`--ttl`) because free endpoints rate-limit and a
 slider would otherwise refetch on every move; **Refresh** forces a refetch.
+
+`--snapshot` values against the pinned prices in `config/price_snapshot.json`
+instead of fetching — useful for reproducing a valuation at a known moment, or
+when no source is reachable. It carries spot prices and no history, which is
+enough for the valuation page's four inputs but not for moving averages,
+volatility, correlations or the Monte Carlo forecast. So `/report` returns a 503
+explaining why rather than reconstructing a history from one price point, and
+the mNAV percentile and realized beta show as n/a.
 
 It binds to localhost, has no authentication, and serves treasury figures that
 are unverified until you fix them — it is a local analysis tool, not a service.

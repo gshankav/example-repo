@@ -87,7 +87,7 @@ def test_html_shows_unverified_banner(series, run_date):
     )
     out = run_model(series, unverified, ModelParams(n_paths=500), run_date=run_date)
     html = render_html(out)
-    assert "unverified placeholders" in html.lower()
+    assert "unverified" in html.lower()
 
 
 def test_subject_line_has_all_three_assets(output, run_date):

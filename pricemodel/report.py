@@ -267,7 +267,7 @@ def _mnav_block(output: ModelOutput) -> str:
         banner = f"""
         <tr><td colspan="2" style="padding:10px 14px;background:{WARN_BG};
              border-bottom:1px solid {LINE};font:600 12px {FONT};color:#8a5a12;">
-          Treasury inputs are unverified placeholders - update config/holdings.json
+          Treasury inputs are UNVERIFIED - not confirmed against a filing. Check config/holdings.json
           before acting on these numbers.
         </td></tr>"""
     elif m.stale:
@@ -527,7 +527,7 @@ def render_text(output: ModelOutput, accuracy: list[Accuracy] | None = None) -> 
         add(f"  MSTR price          {fmt_price(m.mstr_price)}")
         add(f"  Treasury as of      {m.as_of} ({m.source})")
         if not m.verified:
-            add("  ! treasury inputs are UNVERIFIED placeholders")
+            add("  ! treasury inputs are UNVERIFIED - not confirmed against a filing")
 
     if output.cross.correlations:
         add("")

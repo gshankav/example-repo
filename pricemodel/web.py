@@ -29,7 +29,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from .config import ASSETS, DEFAULT_PARAMS, HISTORY_DIR, load_holdings
+from .config import (
+    ASSETS,
+    DEFAULT_PARAMS,
+    HISTORY_DIR,
+    PriceSnapshot,
+    load_holdings,
+    load_price_snapshot,
+)
 from .data import DataError, Series, fetch_all, fetch_shares_outstanding
 from .history import load_records, score_history
 from .model import ModelOutput, run_model
@@ -61,21 +68,36 @@ CONTENT_TYPES = {
 
 
 class Bundle:
-    """One consistent snapshot: prices, treasury inputs, model output."""
+    """One consistent snapshot: prices, treasury inputs, model output.
+
+    ``output`` is None in snapshot mode, where there are spot prices but no
+    history. The valuation only ever needed four numbers, so it works either
+    way; the dashboard needs a series and says so rather than improvising one.
+    """
 
     def __init__(
         self,
-        series: dict[str, Series],
-        output: ModelOutput,
+        series: dict[str, Series] | None,
+        output: ModelOutput | None,
         cap: CapitalStructure,
         accuracy: list[Any],
         holdings: Any,
+        spot: dict[str, float] | None = None,
+        snapshot: PriceSnapshot | None = None,
     ) -> None:
-        self.series = series
+        self.series = series or {}
         self.output = output
         self.cap = cap
         self.accuracy = accuracy
         self.holdings = holdings
+        self.snapshot = snapshot
+        self.spot = spot or {
+            "btc_price": self.series["BTC"].last_close,
+            "mstr_price": self.series["MSTR"].last_close,
+            "btc_holdings": holdings.btc_holdings,
+            "shares": holdings.diluted_shares,
+        }
+        self.run_date = output.run_date if output else date.today()
         self.built_at = time.time()
 
 
@@ -89,9 +111,17 @@ class ModelCache:
     fetch instead of starting several.
     """
 
-    def __init__(self, offline: bool = False, ttl: float = 900.0) -> None:
+    def __init__(
+        self,
+        offline: bool = False,
+        ttl: float = 900.0,
+        snapshot_path: Path | None = None,
+        use_snapshot: bool = False,
+    ) -> None:
         self.offline = offline
         self.ttl = ttl
+        self.snapshot_path = snapshot_path
+        self.use_snapshot = use_snapshot
         self._lock = threading.Lock()
         self._bundle: Bundle | None = None
 
@@ -107,6 +137,8 @@ class ModelCache:
 
     def _build(self) -> Bundle:
         run_date = date.today()
+        if self.use_snapshot:
+            return self._build_from_snapshot()
         if self.offline:
             from .cli import _synthetic_series
 
@@ -128,6 +160,26 @@ class ModelCache:
         cap = load_capital_structure()
         log.info("model snapshot rebuilt (%s)", "offline" if self.offline else "live")
         return Bundle(series, output, cap, accuracy, holdings)
+
+    def _build_from_snapshot(self) -> Bundle:
+        """Pinned spot prices, no history - valuation only."""
+        snap = load_price_snapshot(self.snapshot_path)
+        holdings = load_holdings()
+        log.info("using pinned price snapshot as of %s", snap.as_of)
+        return Bundle(
+            series=None,
+            output=None,
+            cap=load_capital_structure(),
+            accuracy=[],
+            holdings=holdings,
+            spot={
+                "btc_price": snap.price("BTC"),
+                "mstr_price": snap.price("MSTR"),
+                "btc_holdings": holdings.btc_holdings,
+                "shares": holdings.diluted_shares,
+            },
+            snapshot=snap,
+        )
 
 
 # --------------------------------------------------------------------------
@@ -182,8 +234,18 @@ def _asset_payload(key: str, bundle: Bundle) -> dict[str, Any]:
     }
 
 
+class HistoryUnavailable(RuntimeError):
+    """The dashboard was asked for while running on spot prices alone."""
+
+
 def report_payload(bundle: Bundle) -> dict[str, Any]:
     out = bundle.output
+    if out is None:
+        raise HistoryUnavailable(
+            "the dashboard needs a price history - moving averages, volatility, "
+            "correlations and the forecast cannot be computed from a pinned spot "
+            "price. Restart without --snapshot, or use the valuation page."
+        )
     m = out.mnav
     return {
         "run_date": out.run_date.isoformat(),
@@ -233,12 +295,7 @@ def report_payload(bundle: Bundle) -> dict[str, Any]:
 
 def value_payload(bundle: Bundle, overrides: dict[str, float]) -> dict[str, Any]:
     """Run the valuation at spot, or at whatever the caller overrode."""
-    spot = {
-        "btc_price": bundle.series["BTC"].last_close,
-        "mstr_price": bundle.series["MSTR"].last_close,
-        "btc_holdings": bundle.holdings.btc_holdings,
-        "shares": bundle.holdings.diluted_shares,
-    }
+    spot = dict(bundle.spot)
     used = {**spot, **overrides}
     v = value(
         btc_price=used["btc_price"],
@@ -248,13 +305,22 @@ def value_payload(bundle: Bundle, overrides: dict[str, float]) -> dict[str, Any]
         cap=bundle.cap,
     )
 
-    run_date = bundle.output.run_date
+    run_date = bundle.run_date
     notes = warnings_for(bundle.cap, run_date)
+    if bundle.snapshot:
+        snap = bundle.snapshot
+        stamps = ", ".join(f"{k} {snap.quoted_at[k]}" for k in sorted(snap.quoted_at))
+        notes.insert(
+            0,
+            f"PINNED PRICES from config/price_snapshot.json ({snap.source}). "
+            f"Quoted at: {stamps}. Not live - refresh will not move them.",
+        )
     if not bundle.holdings.verified:
         notes.insert(
             0,
-            "MSTR treasury figures are UNVERIFIED placeholders - update "
-            "config/holdings.json from the latest 8-K/10-Q before quoting these.",
+            f"MSTR treasury figures are UNVERIFIED ({bundle.holdings.source}, "
+            f"as of {bundle.holdings.as_of}) - confirm against the latest "
+            "8-K/10-Q before quoting these.",
         )
     elif bundle.holdings.is_stale(run_date):
         notes.insert(
@@ -284,14 +350,37 @@ def value_payload(bundle: Bundle, overrides: dict[str, float]) -> dict[str, Any]
             "capital_structure_verified": bundle.cap.verified,
             "capital_structure_as_of": bundle.cap.as_of.isoformat(),
             "capital_structure_source": bundle.cap.source,
-            "btc_source": bundle.series["BTC"].source,
-            "mstr_source": bundle.series["MSTR"].source,
+            "btc_source": _source_of(bundle, "BTC"),
+            "mstr_source": _source_of(bundle, "MSTR"),
+            # Both need a price history, so both are unavailable on a snapshot
+            # rather than being estimated from a single point.
             "mnav_percentile": (
-                bundle.output.mnav.percentile_rank if bundle.output.mnav else None
+                bundle.output.mnav.percentile_rank
+                if bundle.output and bundle.output.mnav
+                else None
             ),
-            "realized_beta_90d": bundle.output.cross.betas.get("MSTR/BTC"),
+            "realized_beta_90d": (
+                bundle.output.cross.betas.get("MSTR/BTC") if bundle.output else None
+            ),
+            "snapshot": (
+                {
+                    "as_of": bundle.snapshot.as_of.isoformat(),
+                    "requested_for": bundle.snapshot.requested_for,
+                    "source": bundle.snapshot.source,
+                    "quoted_at": bundle.snapshot.quoted_at,
+                    "notes": bundle.snapshot.notes,
+                }
+                if bundle.snapshot
+                else None
+            ),
         },
     }
+
+
+def _source_of(bundle: Bundle, key: str) -> str:
+    if bundle.snapshot:
+        return f"pinned {bundle.snapshot.quoted_at.get(key, '')}"
+    return bundle.series[key].source
 
 
 # --------------------------------------------------------------------------
@@ -343,6 +432,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
         except BadRequest as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+        except HistoryUnavailable as exc:
+            self._send_json(
+                {"error": "history unavailable", "detail": str(exc)},
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            )
         except DataError as exc:
             # No price source answered. A valuation with no prices is not a
             # degraded valuation, it is no valuation - say so rather than
@@ -413,6 +507,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--offline", action="store_true", help="synthetic data, no network")
+    p.add_argument(
+        "--snapshot",
+        nargs="?",
+        const="",
+        metavar="PATH",
+        help="value against pinned spot prices from config/price_snapshot.json "
+        "(or PATH). Valuation only - the dashboard needs a real history.",
+    )
     p.add_argument("--ttl", type=float, default=900.0, help="cache seconds")
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args(argv)
@@ -428,12 +530,21 @@ def main(argv: list[str] | None = None) -> int:
             args.host,
         )
 
-    cache = ModelCache(offline=args.offline, ttl=args.ttl)
+    cache = ModelCache(
+        offline=args.offline,
+        ttl=args.ttl,
+        snapshot_path=Path(args.snapshot) if args.snapshot else None,
+        use_snapshot=args.snapshot is not None,
+    )
     server = build_server(args.host, args.port, cache)
     log.info("serving on http://%s:%d  (valuation at /, dashboard at /report)",
              args.host, args.port)
     if args.offline:
         log.warning("OFFLINE: synthetic prices, meaningless as a valuation")
+    if args.snapshot is not None:
+        log.warning(
+            "SNAPSHOT: pinned prices, not live; /report is unavailable without history"
+        )
     try:
         server.serve_forever()
     except KeyboardInterrupt:

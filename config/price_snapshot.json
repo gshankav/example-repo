@@ -1,0 +1,38 @@
+{
+  "_comment": [
+    "A pinned set of spot prices, for reproducing a valuation at a known moment or",
+    "for running when no price source is reachable. NEVER used automatically: the",
+    "fetchers fail loudly rather than silently serving stale prices, so this only",
+    "loads behind an explicit --snapshot flag, and every surface that uses it says so.",
+    "",
+    "Spot prices only - no history. That is enough for the valuation page, which needs",
+    "four numbers, but not for the daily report's moving averages, volatility,",
+    "correlations or Monte Carlo forecast, all of which need a real series. Those",
+    "surfaces report unavailable under --snapshot rather than inventing a history.",
+    "",
+    "Captured 2026-08-22 for the 7:45pm ET valuation. The BTC and ETH stamps are the",
+    "closest quotes available at capture time, both earlier in the day than 19:45 ET;",
+    "crypto trades continuously, so they will have moved since. MSTR is a Friday close:",
+    "2026-08-22 is a Saturday, so there is no Saturday equity print."
+  ],
+  "as_of": "2026-08-22",
+  "requested_for": "2026-08-22T19:45:00-04:00",
+  "source": "public quote reporting gathered 2026-08-22; not exchange-official",
+  "prices": {
+    "BTC": {
+      "price": 72944.28,
+      "quoted_at": "2026-08-22T20:38:05Z",
+      "note": "24/7 market"
+    },
+    "ETH": {
+      "price": 2425.44,
+      "quoted_at": "2026-08-22T16:42:00Z",
+      "note": "24/7 market"
+    },
+    "MSTR": {
+      "price": 119.25,
+      "quoted_at": "2026-08-21T20:00:00Z",
+      "note": "Friday close; +6.10% on the day. Aug 22 is a Saturday - no equity session."
+    }
+  }
+}

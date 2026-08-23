@@ -11,6 +11,14 @@ and quietly poison everything downstream.
 | Shares outstanding | SEC XBRL company concept API | every run, best-effort | quietly — returns `None`, config value stands |
 | **BTC holdings** | **manual, from 8-K/10-Q** | **by hand** | **quietly, until the staleness check fires** |
 | **Capital structure** | **manual, from 10-Q** | **by hand** | **quietly** |
+| Pinned prices (`--snapshot`) | `config/price_snapshot.json` | by hand | never used unless asked for by name |
+
+**What ships today.** The configs carry real figures current to 22 August 2026 —
+840,447 BTC, 364.58M shares, $6.7B converts, $15.5B preferred, $4.8B cash — from
+public reporting rather than from filings anyone opened, so `verified` is false
+on both. Treat them as good working inputs and bad citations: quote them as
+"reported as", never as "per the 10-Q", and confirm before anything consequential
+rests on them.
 
 ## Prices
 
@@ -83,11 +91,30 @@ series get issued several times a year. A capital structure more than one
 quarter old should be treated the way a stale BTC count is treated — flagged in
 the output, not quietly used.
 
+## Pinned prices
+
+`config/price_snapshot.json` holds spot prices and nothing else. It exists for
+two cases: reproducing a valuation at a known moment, and working when no source
+is reachable at all.
+
+It never loads on its own. The fetchers fail loudly by design — a valuation
+quietly computed on last week's price is worse than no valuation — so the
+snapshot is the explicit opt-out, behind `--snapshot`, and every surface that
+uses it says so in a warning.
+
+Spot only, deliberately. Moving averages, volatility, correlations, the Monte
+Carlo forecast and the mNAV percentile all need a real series. Under a snapshot
+they report unavailable rather than being reconstructed from one point: a
+percentile computed from a single observation is a fabrication with a number
+attached, which is worse than a blank.
+
 ## Sanity checks before quoting
 
 Cheap, and they catch most input errors:
 
 - Gross mNAV outside roughly 0.5x–4x → suspect an input, not a market event.
+  (It has been *below* 1.0x since mid-2026, so a sub-par reading is no longer
+  itself a red flag — 0.71x gross against 0.99x net is the current shape.)
 - BTC NAV wildly different from market cap when mNAV is near 1 → share count is
   probably on the wrong basis.
 - BTC per share moving sharply without a disclosed raise or purchase → the share

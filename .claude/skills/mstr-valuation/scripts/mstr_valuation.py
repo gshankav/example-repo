@@ -39,7 +39,12 @@ def _find_repo_root(start: Path) -> Path:
 REPO_ROOT = _find_repo_root(Path(__file__).resolve())
 sys.path.insert(0, str(REPO_ROOT))
 
-from pricemodel.config import ASSETS, DEFAULT_PARAMS, load_holdings  # noqa: E402
+from pricemodel.config import (  # noqa: E402
+    ASSETS,
+    DEFAULT_PARAMS,
+    load_holdings,
+    load_price_snapshot,
+)
 from pricemodel.data import (  # noqa: E402
     DataError,
     Series,
@@ -194,6 +199,15 @@ def render(
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="MSTR bitcoin-treasury valuation")
     p.add_argument("--offline", action="store_true", help="synthetic data, no network")
+    p.add_argument(
+        "--snapshot",
+        nargs="?",
+        const="",
+        metavar="PATH",
+        help="value against pinned spot prices from config/price_snapshot.json "
+        "(or PATH) instead of fetching. The mNAV percentile and realized beta "
+        "need a history, so they report as n/a.",
+    )
     p.add_argument("--capital-structure", type=Path, default=None)
     p.add_argument("--btc-price", type=float, help="override BTC spot")
     p.add_argument("--mstr-price", type=float, help="override MSTR price")
@@ -205,10 +219,19 @@ def main(argv: list[str] | None = None) -> int:
     run_date = date.today()
     warnings: list[str] = []
 
-    if args.offline:
+    snapshot = None
+    series: dict[str, Series] = {}
+    if args.snapshot is not None:
+        snapshot = load_price_snapshot(Path(args.snapshot) if args.snapshot else None)
+        stamps = ", ".join(f"{k} {snapshot.quoted_at[k]}" for k in sorted(snapshot.quoted_at))
+        warnings.append(
+            f"PINNED PRICES from the snapshot ({snapshot.source}). "
+            f"Quoted at: {stamps}. Not live."
+        )
+    elif args.offline:
         from pricemodel.cli import _synthetic_series  # deterministic fake series
 
-        series: dict[str, Series] = _synthetic_series()
+        series = _synthetic_series()
         warnings.append("OFFLINE: synthetic prices, meaningless as a valuation.")
     else:
         try:
@@ -226,15 +249,15 @@ def main(argv: list[str] | None = None) -> int:
             return 2
 
     holdings = load_holdings()
-    if not args.offline:
+    if not args.offline and snapshot is None:
         sec = fetch_shares_outstanding()
         if sec and sec[1] >= holdings.as_of:
             holdings.diluted_shares, holdings.as_of = sec[0], sec[1]
 
     if not holdings.verified:
         warnings.append(
-            "MSTR treasury figures are UNVERIFIED placeholders - update "
-            "config/holdings.json from the latest 8-K/10-Q before quoting these."
+            f"MSTR treasury figures are UNVERIFIED ({holdings.source}, as of "
+            f"{holdings.as_of}) - confirm against the latest 8-K/10-Q."
         )
     elif holdings.is_stale(run_date):
         warnings.append(
@@ -255,13 +278,21 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     # Reuse the repo's own mNAV so the valuation and the daily report can never
-    # disagree about the part they share - the percentile needs its history.
-    mnav = compute_mnav(series["BTC"], series["MSTR"], holdings, run_date)
-    beta = build_cross_asset(series, DEFAULT_PARAMS).betas.get("MSTR/BTC")
+    # disagree about the part they share - the percentile needs its history, so
+    # both it and the beta go unavailable on a snapshot rather than being
+    # estimated from a single price point.
+    if snapshot is not None:
+        spot_btc, spot_mstr = snapshot.price("BTC"), snapshot.price("MSTR")
+        percentile = beta = None
+    else:
+        mnav = compute_mnav(series["BTC"], series["MSTR"], holdings, run_date)
+        beta = build_cross_asset(series, DEFAULT_PARAMS).betas.get("MSTR/BTC")
+        spot_btc, spot_mstr = mnav.btc_price, mnav.mstr_price
+        percentile = mnav.percentile_rank
 
     v = value(
-        btc_price=args.btc_price or mnav.btc_price,
-        mstr_price=args.mstr_price or mnav.mstr_price,
+        btc_price=args.btc_price or spot_btc,
+        mstr_price=args.mstr_price or spot_mstr,
         btc_holdings=args.btc_holdings or holdings.btc_holdings,
         basic_shares=args.shares or holdings.diluted_shares,
         cap=cap,
@@ -275,7 +306,7 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "run_date": run_date.isoformat(),
                     "valuation": v,
-                    "mnav_percentile": mnav.percentile_rank,
+                    "mnav_percentile": percentile,
                     "realized_beta_90d": beta,
                     "sensitivity": sensitivity(v),
                     "warnings": warnings,
@@ -289,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    print(render(v, cap, mnav.percentile_rank, beta, warnings, holdings.as_of))
+    print(render(v, cap, percentile, beta, warnings, holdings.as_of))
     return 0
 
 

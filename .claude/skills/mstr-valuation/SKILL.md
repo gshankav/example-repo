@@ -14,6 +14,23 @@ else is detail.
 This skill covers how to compute that correctly in this repo, and — more
 importantly — the handful of places where the obvious computation is wrong.
 
+## Where the numbers stand today
+
+The shipped configs carry **real figures current to 22 August 2026**, and they
+tell an unusual story worth knowing before you start: MSTR trades at roughly
+**0.71x gross mNAV** — a ~29% discount to its bitcoin — while sitting at about
+**0.99x net mNAV**, essentially at parity once $6.7B of converts and $15.5B of
+preferred are netted off. Gross and net disagreeing that sharply *is* the story:
+the discount to gross NAV is close to exactly the weight of the senior claims,
+so the market is pricing the equity at its residual rather than at its bitcoin.
+
+Two consequences follow directly. Issuing equity here is **dilutive** to BTC per
+share (below 1.0x gross mNAV — see the accretion inequality below), so the
+ATM flywheel runs in reverse. And every convert strikes far out of the money, so
+they are all debt and none of them dilute.
+
+None of this is filing-verified — see provenance below.
+
 ## Before any number is quoted: check provenance
 
 `config/holdings.json` ships with **unverified placeholder** BTC and share
@@ -21,6 +38,11 @@ counts, and `verified` is `false` until someone updates it from a filing. Every
 valuation number below is a direct function of those two inputs, so a stale
 `btc_holdings` doesn't produce a slightly-off mNAV, it produces a confidently
 wrong one.
+
+The configs now hold sourced figures rather than invented placeholders, but
+`verified` is still false: they came from public reporting, not from a filing
+anyone opened. That distinction matters when you quote them — "reported as" is
+honest, "per the 10-Q" is not.
 
 Read the config and check `verified` and `as_of` before reporting anything. If
 the figures are unverified or older than `stale_after_days` (45), say so in the
@@ -31,10 +53,16 @@ covers where fresh figures come from and how to refresh them.
 ## Quick start
 
 ```bash
-python .claude/skills/mstr-valuation/scripts/mstr_valuation.py            # live data
-python .claude/skills/mstr-valuation/scripts/mstr_valuation.py --offline  # synthetic, no network
-python .claude/skills/mstr-valuation/scripts/mstr_valuation.py --json     # machine-readable
+python .claude/skills/mstr-valuation/scripts/mstr_valuation.py             # live data
+python .claude/skills/mstr-valuation/scripts/mstr_valuation.py --snapshot  # pinned prices, no network
+python .claude/skills/mstr-valuation/scripts/mstr_valuation.py --offline   # synthetic, no network
+python .claude/skills/mstr-valuation/scripts/mstr_valuation.py --json      # machine-readable
 ```
+
+`--snapshot` values against `config/price_snapshot.json` rather than fetching.
+It holds spot prices and no history, so the mNAV percentile and the realized
+beta come back n/a — both need a series, and estimating them from one point
+would be inventing the answer rather than measuring it.
 
 The arithmetic lives in `pricemodel/valuation.py`; the script only fetches
 inputs and renders. The web app (`python -m pricemodel.web`) is the same module

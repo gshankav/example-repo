@@ -198,3 +198,62 @@ def test_concurrent_requests_trigger_one_build_not_many(bundle, monkeypatch):
     for t in threads:
         t.join()
     assert len(builds) == 1
+
+
+# --- snapshot mode --------------------------------------------------------
+
+
+@pytest.fixture
+def snapshot_cache(tmp_path):
+    """A cache pinned to spot prices with no history behind them."""
+    return ModelCache(snapshot_path=None, use_snapshot=True)
+
+
+@pytest.fixture
+def snapshot_server(snapshot_cache):
+    srv = build_server("127.0.0.1", 0, snapshot_cache)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{srv.server_address[1]}"
+    srv.shutdown()
+    srv.server_close()
+
+
+def test_snapshot_bundle_has_prices_but_no_model(snapshot_cache):
+    b = snapshot_cache.get()
+    assert b.output is None and b.series == {}
+    assert b.spot["btc_price"] > 0 and b.spot["mstr_price"] > 0
+    assert b.snapshot is not None
+
+
+def test_snapshot_values_from_pinned_prices(snapshot_cache):
+    b = snapshot_cache.get()
+    p = value_payload(b, {})
+    assert p["valuation"]["btc_price"] == pytest.approx(b.snapshot.price("BTC"))
+    assert p["valuation"]["mstr_price"] == pytest.approx(b.snapshot.price("MSTR"))
+    assert any("PINNED PRICES" in w for w in p["warnings"])
+
+
+def test_snapshot_reports_history_derived_stats_as_unavailable(snapshot_cache):
+    """A percentile or a beta from one price point would be invented, not measured."""
+    meta = value_payload(snapshot_cache.get(), {})["meta"]
+    assert meta["mnav_percentile"] is None
+    assert meta["realized_beta_90d"] is None
+    assert meta["snapshot"]["requested_for"]
+
+
+def test_snapshot_still_accepts_overrides(snapshot_cache):
+    p = value_payload(snapshot_cache.get(), {"btc_price": 50_000.0})
+    assert p["valuation"]["btc_price"] == pytest.approx(50_000.0)
+    assert p["overrides"] == ["btc_price"]
+
+
+def test_dashboard_refuses_rather_than_faking_a_history(snapshot_server):
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        get(snapshot_server, "/api/report")
+    assert exc.value.code == 503
+    assert "history" in json.loads(exc.value.read())["detail"]
+
+
+def test_valuation_page_still_serves_under_snapshot(snapshot_server):
+    status, body = get_json(snapshot_server, "/api/value")
+    assert status == 200 and body["valuation"]["net_mnav"]

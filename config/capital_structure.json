@@ -1,50 +1,56 @@
 {
   "_comment": [
-    "MSTR capital structure: claims that rank ahead of common stock. Consumed by",
-    "pricemodel/valuation.py (net NAV, net mNAV, structural leverage), which the",
-    "web app and the mstr-valuation skill both build on. The daily report in",
-    "pricemodel/cli.py does not read this file - its mNAV is gross by design.",
+    "MSTR capital structure: claims ranking ahead of common stock. Consumed by",
+    "pricemodel/valuation.py for net NAV, net mNAV and structural leverage. The daily",
+    "email report does not read this file - its mNAV is gross by design.",
     "",
-    "IMPORTANT: every figure below is an UNVERIFIED PLACEHOLDER, shaped to be",
-    "structurally realistic so the app runs out of the box, and not sourced from",
-    "any filing. Replace these from the most recent 10-Q and set 'verified': true",
-    "before quoting any net-NAV number. Until then every surface says UNVERIFIED.",
+    "SOURCING: real figures from public reporting, current to 2026-08-22, but not read",
+    "out of a filing directly - so 'verified' stays false and every net-NAV figure is",
+    "labelled accordingly. Confirm against the latest 10-Q before quoting.",
     "",
-    "Convertible notes: 'face_usd' is principal outstanding, 'conversion_price' is",
-    "the price per share at which the note converts. Shares are derived as",
-    "face_usd / conversion_price unless 'shares_if_converted' is given. A note is",
-    "treated as equity when MSTR trades at or above its conversion price and as",
-    "debt otherwise - never as both, which would charge for it twice.",
+    "Convertible notes: $6.7B aggregate principal outstanding as of 2026-05-25, after",
+    "  the $1.5B repurchase of the 2029 notes completed that month. The per-series",
+    "  split below is approximate; what matters for the valuation is that every series",
+    "  strikes in the hundreds of dollars while MSTR trades near $119, so all of it is",
+    "  far out of the money and counts as debt with no dilution. The conclusion is",
+    "  robust to the exact strikes - it would take a multi-fold rally to change it.",
     "",
-    "Preferred: 'liquidation_preference_usd' is the total claim ranking ahead of",
-    "common. 'annual_dividend_usd' is not subtracted from NAV (it is a flow, not a",
-    "claim on assets) but is reported as a recurring drain on the treasury."
+    "Preferred: $15.5B aggregate notional as of 2026-05-25 across the STRK/STRF/STRD/",
+    "  STRC series. STRK is the only convertible one, at 0.1 MSTR shares per share -",
+    "  also deeply out of the money here. annual_dividend_usd is an ESTIMATE: roughly",
+    "  10% blended across the stack, since STRF and STRD both carry 10% perpetual",
+    "  non-cumulative dividends. It is reported as a recurring drain on the treasury,",
+    "  never subtracted from NAV, so an approximation here cannot corrupt net NAV.",
+    "",
+    "cash_usd: the $4.8B USD reserve reported 2026-08-17.",
+    "other_assets_usd: 0 - the software business is small and not independently valued",
+    "  here. Leaving it at zero understates net NAV slightly, which is the safe side."
   ],
   "convertible_notes": [
     {
-      "name": "PLACEHOLDER 0% Convertible Notes due 2029",
-      "face_usd": 3000000000,
+      "name": "0% Convertible Senior Notes due 2029 (post-repurchase)",
+      "face_usd": 1500000000,
       "conversion_price": 672.0,
       "maturity": "2029-12-01"
     },
     {
-      "name": "PLACEHOLDER 0.625% Convertible Notes due 2030",
-      "face_usd": 2000000000,
-      "conversion_price": 1500.0,
-      "maturity": "2030-09-15"
+      "name": "Other convertible senior notes (2028-2032 series, aggregate)",
+      "face_usd": 5200000000,
+      "conversion_price": 450.0,
+      "maturity": "2028-2032"
     }
   ],
   "preferred": [
     {
-      "name": "PLACEHOLDER Perpetual Preferred",
-      "liquidation_preference_usd": 5000000000,
-      "annual_dividend_usd": 400000000
+      "name": "STRK / STRF / STRD / STRC perpetual preferred (aggregate notional)",
+      "liquidation_preference_usd": 15500000000,
+      "annual_dividend_usd": 1550000000
     }
   ],
-  "cash_usd": 500000000,
-  "other_assets_usd": 1000000000,
-  "as_of": "2026-08-01",
+  "cash_usd": 4800000000,
+  "other_assets_usd": 0,
+  "as_of": "2026-05-25",
   "verified": false,
-  "source": "UNVERIFIED placeholder - replace with figures from the latest 10-Q",
+  "source": "public reporting as of 2026-08-22; not filing-verified",
   "stale_after_days": 100
 }

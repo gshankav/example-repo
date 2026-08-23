@@ -327,8 +327,9 @@ def run_model(
         mnav = compute_mnav(series["BTC"], series["MSTR"], holdings, run_date)
         if not mnav.verified:
             warnings.append(
-                "MSTR treasury figures are UNVERIFIED placeholders - update "
-                "config/holdings.json from the latest 8-K/10-Q before relying on mNAV."
+                f"MSTR treasury figures are UNVERIFIED ({mnav.source}, as of "
+                f"{mnav.as_of}) - confirm against the latest 8-K/10-Q before "
+                "relying on mNAV."
             )
         elif mnav.stale:
             warnings.append(
