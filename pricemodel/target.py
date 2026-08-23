@@ -172,6 +172,10 @@ class JointResult:
     curve_joint: list[tuple[int, float]]
     mnav_at_joint: float | None
     btc_max_drawdown: dict[str, float] | None = None
+    # Price distribution on the final day of the horizon. Set horizon_days to
+    # the date you care about and read these, rather than reading a barrier
+    # probability and trying to invert it into a level.
+    price_quantiles: dict[str, dict[str, float]] | None = None
 
 
 def joint_passage(
@@ -334,6 +338,22 @@ def joint_passage(
         "p95_mildest": float(np.percentile(worst, 95)),
     }
 
+    quantiles: dict[str, dict[str, float]] = {}
+    for k, arr in list(paths.items()) + [("MSTR", mstr)]:
+        end = arr[:, -1]
+        quantiles[k] = {
+            "p10": float(np.percentile(end, 10)),
+            "p25": float(np.percentile(end, 25)),
+            "median": float(np.percentile(end, 50)),
+            "p75": float(np.percentile(end, 75)),
+            "p90": float(np.percentile(end, 90)),
+        }
+    quantiles["mNAV"] = {
+        q: float(np.percentile(mnav_path[:, -1], int(q[1:])))
+        for q in ("p10", "p25", "p75", "p90")
+    }
+    quantiles["mNAV"]["median"] = float(np.percentile(mnav_path[:, -1], 50))
+
     mnav_at = None
     if d_joint is not None:
         reached = same_day[:, d_joint - 1]
@@ -341,5 +361,6 @@ def joint_passage(
             mnav_at = float(np.median(mnav_path[reached, d_joint - 1]))
 
     return JointResult(
-        prob_ever, median_day, p_joint, d_joint, curve, mnav_at, drawdown
+        prob_ever, median_day, p_joint, d_joint, curve, mnav_at, drawdown,
+        quantiles,
     )
