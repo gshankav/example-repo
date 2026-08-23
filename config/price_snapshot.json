@@ -1,38 +1,37 @@
 {
   "_comment": [
-    "A pinned set of spot prices, for reproducing a valuation at a known moment or",
-    "for running when no price source is reachable. NEVER used automatically: the",
-    "fetchers fail loudly rather than silently serving stale prices, so this only",
-    "loads behind an explicit --snapshot flag, and every surface that uses it says so.",
+    "Pinned spot prices. NEVER used automatically - the fetchers fail loudly rather",
+    "than serve stale prices, so this loads only behind --snapshot and every surface",
+    "that uses it says so.",
     "",
-    "Spot prices only - no history. That is enough for the valuation page, which needs",
-    "four numbers, but not for the daily report's moving averages, volatility,",
-    "correlations or Monte Carlo forecast, all of which need a real series. Those",
-    "surfaces report unavailable under --snapshot rather than inventing a history.",
-    "",
-    "Captured 2026-08-22 for the 7:45pm ET valuation. The BTC and ETH stamps are the",
-    "closest quotes available at capture time, both earlier in the day than 19:45 ET;",
-    "crypto trades continuously, so they will have moved since. MSTR is a Friday close:",
-    "2026-08-22 is a Saturday, so there is no Saturday equity print."
+    "Refreshed 2026-08-23 ahead of the weekly crypto close, after a +22% BTC week.",
+    "Sources disagree by a few percent: CNBC put Friday's close at $76,944, while",
+    "Sunday coverage has BTC around $75,000. BTC/ETH/SOL trade continuously; MSTR",
+    "does not, so its price is still Friday's close and cannot update until Monday."
   ],
-  "as_of": "2026-08-22",
-  "requested_for": "2026-08-22T19:45:00-04:00",
-  "source": "public quote reporting gathered 2026-08-22; not exchange-official",
+  "as_of": "2026-08-23",
+  "requested_for": "2026-08-23T19:45:00-04:00",
+  "source": "public quote reporting gathered 2026-08-23; not exchange-official",
   "prices": {
     "BTC": {
-      "price": 72944.28,
-      "quoted_at": "2026-08-22T20:38:05Z",
-      "note": "24/7 market"
+      "price": 75000.0,
+      "quoted_at": "2026-08-23T22:00:00Z",
+      "note": "~$75k Sunday, off Friday's $76,944 close; +22% on the week"
     },
     "ETH": {
       "price": 2425.44,
       "quoted_at": "2026-08-22T16:42:00Z",
+      "note": "last confirmed quote; likely higher after the weekend rally"
+    },
+    "SOL": {
+      "price": 95.14,
+      "quoted_at": "2026-08-23T18:00:00Z",
       "note": "24/7 market"
     },
     "MSTR": {
       "price": 119.25,
       "quoted_at": "2026-08-21T20:00:00Z",
-      "note": "Friday close; +6.10% on the day. Aug 22 is a Saturday - no equity session."
+      "note": "Friday close, +6.10%. No weekend equity session."
     }
   }
 }
