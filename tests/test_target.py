@@ -132,3 +132,83 @@ def test_mstr_1550_is_a_tail_outcome_on_neutral_assumptions():
     req = required_btc_price(1550.0, 2.0, HOLDINGS, SHARES)
     r = first_passage(72_944.28, req, 0.55, 0.25, 1095, n_paths=8000)
     assert r.prob_ever < 0.5
+
+
+# --- joint passage --------------------------------------------------------
+
+from pricemodel.target import joint_passage  # noqa: E402
+
+SPOT = {"BTC": 72_944.28, "ETH": 2_425.44, "SOL": 93.45}
+SIG = {"BTC": 0.55, "ETH": 0.70, "SOL": 0.90}
+BETA = {"ETH": 1.15, "SOL": 1.30}
+
+
+def _run(barriers, cagr=0.5, mnav_target=1.75, paths=2500, days=1825):
+    return joint_passage(
+        spot=SPOT, barriers=barriers, sigma=SIG,
+        median_cagr={k: cagr for k in SPOT}, beta_to_btc=BETA,
+        btc_holdings=HOLDINGS, shares=SHARES, mnav_now=0.709,
+        mnav_target=mnav_target, horizon_days=days, n_paths=paths,
+    )
+
+
+def test_joint_is_never_likelier_than_its_easiest_leg():
+    """All four on one day cannot beat any single condition ever happening."""
+    r = _run({"BTC": 585_000.0, "ETH": 11_000.0, "SOL": 450.0, "MSTR": 1550.0})
+    assert r.prob_ever_joint <= min(r.prob_ever.values()) + 1e-9
+
+
+def test_correlated_joint_beats_the_independent_product():
+    """These assets move together, so multiplying marginals understates it.
+
+    This is the reason for simulating them jointly rather than running three
+    single-asset models and combining the answers.
+    """
+    b = {"BTC": 300_000.0, "ETH": 6_000.0, "SOL": 250.0}
+    r = _run(b, paths=4000)
+    product = r.prob_ever["BTC"] * r.prob_ever["ETH"] * r.prob_ever["SOL"]
+    assert r.prob_ever_joint > product
+
+
+def test_mstr_inherits_the_btc_path_rather_than_drifting_alone():
+    """With the multiple pinned near 1x, MSTR must track gross NAV per share."""
+    nav_barrier = 1.0 * (HOLDINGS * 585_000.0 / SHARES)
+    r = joint_passage(
+        spot=SPOT, barriers={"BTC": 585_000.0, "MSTR": nav_barrier}, sigma=SIG,
+        median_cagr={k: 0.5 for k in SPOT}, beta_to_btc=BETA,
+        btc_holdings=HOLDINGS, shares=SHARES, mnav_now=1.0, mnav_target=1.0,
+        mnav_sigma_annual=0.01, mnav_halflife_days=30.0,
+        horizon_days=1825, n_paths=3000,
+    )
+    assert r.prob_ever["MSTR"] == pytest.approx(r.prob_ever["BTC"], abs=0.03)
+
+
+def test_a_higher_sustained_multiple_pulls_the_mstr_date_forward():
+    low = _run({"MSTR": 1550.0}, mnav_target=1.2)
+    high = _run({"MSTR": 1550.0}, mnav_target=2.5)
+    assert high.prob_ever["MSTR"] > low.prob_ever["MSTR"]
+
+
+def test_the_multiple_barely_moves_the_joint_date():
+    """The binding constraint is BTC, not the rerating.
+
+    Between 1.5x and 2.0x the MSTR leg moves a lot and the joint date hardly
+    does - which is the finding that matters when someone proposes to reach a
+    joint target by rerating alone.
+    """
+    b = {"BTC": 585_000.0, "ETH": 11_000.0, "SOL": 450.0, "MSTR": 1550.0}
+    lo, hi = _run(b, mnav_target=1.5, paths=4000), _run(b, mnav_target=2.0, paths=4000)
+    assert abs(hi.prob_ever_joint - lo.prob_ever_joint) < 0.06
+    assert hi.prob_ever["MSTR"] > lo.prob_ever["MSTR"]
+
+
+def test_btc_585k_is_the_binding_leg_of_this_particular_basket():
+    r = _run({"BTC": 585_000.0, "ETH": 11_000.0, "SOL": 450.0, "MSTR": 1550.0},
+             paths=4000, days=2555)
+    assert r.prob_ever["BTC"] < r.prob_ever["ETH"]
+    assert r.prob_ever["BTC"] < r.prob_ever["SOL"]
+
+
+def test_joint_median_is_none_below_even_odds():
+    r = _run({"BTC": 5_000_000.0}, cagr=0.0, paths=2000)
+    assert r.prob_ever_joint < 0.5 and r.median_day_joint is None
