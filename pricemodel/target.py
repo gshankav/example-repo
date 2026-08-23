@@ -171,6 +171,7 @@ class JointResult:
     median_day_joint: int | None
     curve_joint: list[tuple[int, float]]
     mnav_at_joint: float | None
+    btc_max_drawdown: dict[str, float] | None = None
 
 
 def joint_passage(
@@ -185,6 +186,12 @@ def joint_passage(
     mnav_target: float,
     mnav_halflife_days: float = 365.0,
     mnav_sigma_annual: float = 0.45,
+    sigma_terminal: dict[str, float] | None = None,
+    vol_halflife_days: float = 730.0,
+    df_terminal: float | None = None,
+    jump_intensity_annual: float = 0.0,
+    jump_mean_log: float = 0.0,
+    jump_sigma_log: float = 0.0,
     horizon_days: int = 2555,
     n_paths: int = 20_000,
     df: float = 4.0,
@@ -216,25 +223,62 @@ def joint_passage(
     keys = [k for k in ("BTC", "ETH", "SOL") if k in barriers or k == "BTC"]
     barrier_keys = [k for k in keys if k in barriers]
     rng = np.random.default_rng(seed)
-    t_scale = np.sqrt((df - 2.0) / df)
 
-    def shocks(vol_annual: float) -> np.ndarray:
-        v = vol_annual / np.sqrt(ann_factor)
-        return rng.standard_t(df, size=(n_paths, horizon_days)) * t_scale * v
+    # Volatility term structure. An asset-class maturation thesis - "adoption
+    # makes drawdowns shallower" - is precisely a claim that volatility decays
+    # toward some lower level, so it is modelled as an exponential glide from
+    # today's vol to a terminal vol rather than assumed away.
+    t = np.arange(horizon_days)
+    decay = np.exp(-t * np.log(2.0) / max(vol_halflife_days, 1.0))
 
-    btc_shock = shocks(sigma["BTC"])
+    def vol_path(key: str) -> np.ndarray:
+        start = sigma[key]
+        end = (sigma_terminal or {}).get(key, start)
+        return end + (start - end) * decay
+
+    # Tails thin as the asset matures too: a maturing market delivers fewer
+    # five-sigma days, which is a separate claim from lower average volatility
+    # and matters more here, since a distant barrier is reached through tails.
+    df_path = (
+        np.full(horizon_days, df)
+        if df_terminal is None
+        else df_terminal + (df - df_terminal) * decay
+    )
+    t_scale_path = np.sqrt((df_path - 2.0) / df_path)
+
+    def shocks(key_or_vol: str | np.ndarray) -> np.ndarray:
+        v = vol_path(key_or_vol) if isinstance(key_or_vol, str) else key_or_vol
+        raw = rng.standard_t(np.broadcast_to(df_path, (n_paths, horizon_days)))
+        return raw * t_scale_path * (v / np.sqrt(ann_factor))
+
+    btc_shock = shocks("BTC")
+
+    # Adoption arrives in steps, not as a smooth grind: an allocation mandate, a
+    # sovereign buyer, a regulatory unlock. Those are Poisson jumps, not
+    # diffusion, and the distinction is not cosmetic - upward jumps carry price
+    # to a distant barrier without the two-sided volatility that also produces
+    # deep drawdowns. The diffusion drift is reduced by the jumps' expected
+    # contribution, so this changes the SHAPE of the path at an unchanged total
+    # expected return, isolating shape from optimism.
+    jump_drift = 0.0
+    if jump_intensity_annual > 0:
+        lam_daily = jump_intensity_annual / ann_factor
+        counts = rng.poisson(lam_daily, size=(n_paths, horizon_days))
+        sizes = rng.normal(jump_mean_log, jump_sigma_log, size=(n_paths, horizon_days))
+        btc_shock = btc_shock + counts * sizes
+        jump_drift = lam_daily * jump_mean_log
     paths: dict[str, np.ndarray] = {}
     for k in keys:
         mu = np.log1p(median_cagr[k]) / ann_factor
         if k == "BTC":
-            inc = mu + btc_shock
+            inc = (mu - jump_drift) + btc_shock
         else:
             beta = beta_to_btc.get(k, 1.0)
             # Split total variance into the part BTC explains and the rest, so
             # raising beta changes correlation without inflating the asset's vol.
-            resid_var = sigma[k] ** 2 - (beta * sigma["BTC"]) ** 2
-            idio = shocks(np.sqrt(resid_var)) if resid_var > 0 else 0.0
-            inc = mu + beta * btc_shock + idio
+            resid_var = vol_path(k) ** 2 - (beta * vol_path("BTC")) ** 2
+            idio = shocks(np.sqrt(np.clip(resid_var, 0.0, None)))
+            inc = (mu - beta * jump_drift) + beta * btc_shock + idio
         paths[k] = spot[k] * np.exp(np.cumsum(inc, axis=1))
 
     # mNAV as an OU process in log space, pulled toward the sustainable level.
@@ -281,10 +325,21 @@ def joint_passage(
     step = max(1, horizon_days // 80)
     curve = [(d, float(joint[:, d - 1].mean())) for d in range(step, horizon_days + 1, step)]
 
+    btc = paths["BTC"]
+    running_peak = np.maximum.accumulate(btc, axis=1)
+    worst = (btc / running_peak - 1.0).min(axis=1)
+    drawdown = {
+        "median": float(np.median(worst)),
+        "p5_worst": float(np.percentile(worst, 5)),
+        "p95_mildest": float(np.percentile(worst, 95)),
+    }
+
     mnav_at = None
     if d_joint is not None:
         reached = same_day[:, d_joint - 1]
         if reached.any():
             mnav_at = float(np.median(mnav_path[reached, d_joint - 1]))
 
-    return JointResult(prob_ever, median_day, p_joint, d_joint, curve, mnav_at)
+    return JointResult(
+        prob_ever, median_day, p_joint, d_joint, curve, mnav_at, drawdown
+    )

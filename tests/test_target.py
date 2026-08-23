@@ -212,3 +212,71 @@ def test_btc_585k_is_the_binding_leg_of_this_particular_basket():
 def test_joint_median_is_none_below_even_odds():
     r = _run({"BTC": 5_000_000.0}, cagr=0.0, paths=2000)
     assert r.prob_ever_joint < 0.5 and r.median_day_joint is None
+
+
+# --- maturation and adoption jumps ----------------------------------------
+
+
+def _mature(**over):
+    b = {"BTC": 585_000.0, "ETH": 11_000.0, "SOL": 450.0, "MSTR": 1550.0}
+    kw = dict(
+        spot=SPOT, barriers=b, sigma=SIG, median_cagr={k: 0.5 for k in SPOT},
+        beta_to_btc=BETA, btc_holdings=HOLDINGS, shares=SHARES, mnav_now=0.709,
+        mnav_target=1.35, horizon_days=2555, n_paths=3000,
+    )
+    kw.update(over)
+    return joint_passage(**kw)
+
+
+MATURING = dict(
+    sigma_terminal={"BTC": 0.32, "ETH": 0.42, "SOL": 0.55},
+    vol_halflife_days=550, df_terminal=8.0,
+)
+
+
+def test_maturation_makes_drawdowns_shallower():
+    """The thesis's own claim, stated so the model can be checked against it."""
+    base = _mature().btc_max_drawdown
+    mature = _mature(**MATURING).btc_max_drawdown
+    assert mature["median"] > base["median"]      # less negative
+    assert mature["p5_worst"] > base["p5_worst"]
+
+
+def test_maturation_delays_arrival_at_a_distant_barrier():
+    """The counterintuitive half, and the reason to model it rather than assume.
+
+    Damping volatility removes the fast paths as well as the deep drawdowns, so
+    a thesis that makes holding easier also makes a deadline harder. Anyone
+    treating 'adoption reduces volatility' as unambiguously bullish for a
+    dated upside target has this backwards.
+    """
+    base = _mature()
+    mature = _mature(**MATURING)
+    by = lambda r: min(r.curve_joint, key=lambda kv: abs(kv[0] - 1773))[1]
+    assert by(mature) < by(base)
+
+
+def test_adoption_jumps_buy_speed_back_at_the_cost_of_drawdown():
+    """Speed and shallow drawdowns are the same dial, not two.
+
+    Jumps are drift-compensated, so this is a pure path-shape comparison at an
+    unchanged expected return: the jumpy path arrives sooner and drops harder.
+    """
+    smooth = _mature(**MATURING)
+    jumpy = _mature(**MATURING, jump_intensity_annual=1.0,
+                    jump_mean_log=0.30, jump_sigma_log=0.15)
+    by = lambda r: min(r.curve_joint, key=lambda kv: abs(kv[0] - 1773))[1]
+    assert by(jumpy) > by(smooth)
+    assert jumpy.btc_max_drawdown["median"] < smooth.btc_max_drawdown["median"]
+
+
+def test_jumps_do_not_smuggle_in_extra_return():
+    """Drift compensation keeps total expected growth unchanged.
+
+    Without it, 'modelling adoption' would just be adding return and calling
+    the resulting earlier date a structural insight.
+    """
+    smooth = _mature(**MATURING, barriers={"BTC": 120_000.0})
+    jumpy = _mature(**MATURING, barriers={"BTC": 120_000.0},
+                    jump_intensity_annual=1.0, jump_mean_log=0.30, jump_sigma_log=0.15)
+    assert jumpy.prob_ever["BTC"] == pytest.approx(smooth.prob_ever["BTC"], abs=0.06)
