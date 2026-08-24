@@ -144,3 +144,72 @@ def test_reversion_to_trend_tightens_the_five_year_fan():
 def test_projection_still_carries_a_deep_drawdown():
     """Shallower is not shallow - the median path still halves at some point."""
     assert _run()["max_drawdown_median"] < -0.35
+
+
+# --- crossing-date distribution -------------------------------------------
+
+from datetime import timedelta  # noqa: E402
+
+from pricemodel.longrun import crossing_dates  # noqa: E402
+
+
+def _cross(target=523_000.0, **over):
+    a = Assumptions(**over)
+    return crossing_dates(a, SPOT, target, START, horizon_days=3600, n_paths=3000)
+
+
+def test_confidence_windows_widen_with_confidence():
+    """More confidence buys a wider window, never a sharper date."""
+    w = _cross()["windows"]
+    spans = {}
+    for label in ("50%", "80%", "90%", "95%"):
+        lo, hi = w[label]
+        spans[label] = date.fromisoformat(hi) - date.fromisoformat(lo)
+    assert spans["50%"] < spans["80%"] < spans["90%"] <= spans["95%"]
+
+
+def test_no_single_day_carries_meaningful_probability():
+    """The ceiling on single-date precision, stated numerically.
+
+    A crossing spread over years cannot put more than a fraction of a percent
+    on any one day. Any claim of high confidence in a specific date is
+    therefore a claim about a window, whether or not it says so.
+    """
+    assert _cross()["best_single_day_prob"] < 0.01
+
+
+def test_ninety_five_percent_window_spans_years():
+    lo, hi = _cross()["windows"]["95%"]
+    assert (date.fromisoformat(hi) - date.fromisoformat(lo)).days > 730
+
+
+def test_a_higher_starting_price_pulls_the_crossing_forward():
+    low = crossing_dates(Assumptions(), {"BTC": 60_000.0}, 523_000.0, START,
+                         horizon_days=3600, n_paths=3000)
+    high = crossing_dates(Assumptions(), {"BTC": 90_000.0}, 523_000.0, START,
+                          horizon_days=3600, n_paths=3000)
+    assert date.fromisoformat(high["median"]) < date.fromisoformat(low["median"])
+
+
+def test_first_touch_precedes_the_central_path_crossing():
+    """Two different questions, and the touch answer is always the earlier one.
+
+    Volatility carries paths above trend, so half of them touch a level before
+    the trend itself reaches it. Quoting one and labelling it the other
+    overstates or understates the date by months.
+    """
+    a = Assumptions()
+    years = np.arange(1, 3600 + 1) / 365.25
+    central = (adoption_trend(a, SPOT["BTC"] * a.btc_supply, years) / a.btc_supply
+               ) * cycle_factor(a, START, years)
+    central_day = int(np.argmax(central >= 523_000.0)) + 1
+    touch = date.fromisoformat(_cross()["median"])
+    assert touch < START + timedelta(days=central_day)
+
+
+def test_unreached_paths_are_counted_not_dropped():
+    """Excluding failures would condition the answer on success."""
+    r = _cross(target=50_000_000.0)
+    assert r["prob_reached"] < 0.5
+    assert r["median"] is None
+    assert r["windows"]["95%"] is None

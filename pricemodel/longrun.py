@@ -27,7 +27,7 @@ visible and separable, not that they are right.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 import numpy as np
@@ -221,4 +221,82 @@ def project(
         "trend_end_price": float(trend_px[-1]),
         "cycle_at_end": float(cycle_factor(a, start, years[-1:])[0]),
         "max_drawdown_median": float(np.median((btc / peak - 1.0).min(axis=1))),
+    }
+
+
+def crossing_dates(
+    a: Assumptions,
+    spot: dict[str, float],
+    target_btc: float,
+    start: date,
+    horizon_days: int = 4400,
+    n_paths: int = 30_000,
+) -> dict[str, Any]:
+    """When does BTC first reach a level - as a distribution, not a date.
+
+    A projection five years out has a crossing date that is genuinely spread
+    over years. Reporting the median alone hides that, and asking how confident
+    one can be "in the date" has no answer until you say how wide a window you
+    will accept. So this returns the window for each confidence level, plus the
+    probability mass sitting on the single most likely quarter, which is the
+    honest ceiling on how precise any single answer can be.
+
+    Paths that never reach the level inside the horizon are reported rather than
+    dropped; excluding them would quietly condition the whole answer on success.
+    """
+    rng = np.random.default_rng(a.seed)
+    days = np.arange(1, horizon_days + 1)
+    years = days / 365.25
+
+    trend = adoption_trend(a, spot["BTC"] * a.btc_supply, years) / a.btc_supply
+    log_trend = np.log(trend * cycle_factor(a, start, years))
+
+    decay = np.exp(-days * np.log(2.0) / a.vol_halflife_days)
+    sigma_d = (a.sigma_end + (a.sigma_start - a.sigma_end) * decay) / np.sqrt(365.25)
+    kappa = np.log(2.0) / a.reversion_halflife_days
+    t_scale = np.sqrt((a.df - 2.0) / a.df)
+
+    dev = np.zeros(n_paths)
+    reached = np.zeros(n_paths, dtype=bool)
+    first = np.full(n_paths, -1)
+    shocks = rng.standard_t(a.df, size=(n_paths, horizon_days)) * t_scale
+    for t in range(horizon_days):
+        dev = dev * (1.0 - kappa) + shocks[:, t] * sigma_d[t]
+        hit = (~reached) & (np.exp(log_trend[t] + dev) >= target_btc)
+        first[hit] = t + 1
+        reached |= hit
+
+    p_reached = float(reached.mean())
+    hit_days = first[reached]
+
+    def window(conf: float) -> tuple[str, str] | None:
+        """Narrowest central window holding `conf` of ALL paths."""
+        if p_reached < conf:
+            return None
+        lo = np.percentile(hit_days, (0.5 - conf / 2) * 100 / p_reached)
+        hi = np.percentile(hit_days, (0.5 + conf / 2) * 100 / p_reached)
+        f = lambda d: (start + timedelta(days=int(d))).isoformat()
+        return f(lo), f(hi)
+
+    # Probability mass per calendar quarter - the ceiling on single-date precision.
+    quarters: dict[str, int] = {}
+    for d in hit_days:
+        dt = start + timedelta(days=int(d))
+        quarters[f"{dt.year}-Q{(dt.month - 1) // 3 + 1}"] = (
+            quarters.get(f"{dt.year}-Q{(dt.month - 1) // 3 + 1}", 0) + 1
+        )
+    ranked = sorted(quarters.items(), key=lambda kv: -kv[1])
+
+    return {
+        "prob_reached": p_reached,
+        "median": (start + timedelta(days=int(np.percentile(hit_days, 50 / p_reached)))).isoformat()
+        if p_reached >= 0.5
+        else None,
+        "windows": {f"{int(c*100)}%": window(c) for c in (0.5, 0.8, 0.9, 0.95)},
+        "top_quarters": [(q, n / n_paths) for q, n in ranked[:6]],
+        # Empty when nothing reached the level - report zero rather than crashing
+        # on a reduction over no data.
+        "best_single_day_prob": (
+            float(np.bincount(hit_days).max() / n_paths) if hit_days.size else 0.0
+        ),
     }
