@@ -264,3 +264,35 @@ def test_windows_widen_with_confidence():
 def test_an_unreachable_target_reports_no_median():
     r = _pf(50e9)
     assert r["prob_reached"] < 0.5 and r["median"] is None
+
+
+# --- equity sleeve --------------------------------------------------------
+
+
+def _pf_eq(target, eq=1_210_567.40, **over):
+    return portfolio_crossing(
+        Assumptions(), PSPOT, POS, target, HOLDINGS, 382_840_000.0, 0.687,
+        START, horizon_days=3300, n_paths=2500, equity_value=eq, **over)
+
+
+def test_equity_sleeve_raises_start_value_and_pulls_the_date_forward():
+    with_eq = _pf_eq(20e6)
+    without = _pf(20e6)
+    assert with_eq["start_value"] == pytest.approx(without["start_value"] + 1_210_567.40)
+    assert date.fromisoformat(with_eq["median"]) < date.fromisoformat(without["median"])
+
+
+def test_equity_sleeve_borrows_btc_wiggle_not_btc_drift():
+    """The sleeve's own return must come from its own parameter alone.
+
+    If the BTC coupling leaked drift, raising bitcoin's growth would raise the
+    equity sleeve's median return too, and the sleeve would quietly become a
+    second crypto position.
+    """
+    slow = _pf_eq(20e6, equity_median_cagr=0.0, equity_beta_to_btc=0.30)
+    fast = _pf_eq(20e6, equity_median_cagr=0.15, equity_beta_to_btc=0.30)
+    assert date.fromisoformat(fast["median"]) < date.fromisoformat(slow["median"])
+
+
+def test_a_zero_equity_sleeve_changes_nothing():
+    assert _pf_eq(20e6, eq=0.0)["median"] == _pf(20e6)["median"]

@@ -316,6 +316,10 @@ def portfolio_crossing(
     start: date,
     horizon_days: int = 4400,
     n_paths: int = 20_000,
+    equity_value: float = 0.0,
+    equity_median_cagr: float = 0.075,
+    equity_sigma: float = 0.16,
+    equity_beta_to_btc: float = 0.30,
 ) -> dict[str, Any]:
     """When a basket of holdings first reaches a target value.
 
@@ -332,6 +336,35 @@ def portfolio_crossing(
     value = np.zeros_like(paths["BTC"])
     for key, qty in positions.items():
         value += qty * paths[key]
+
+    if equity_value > 0:
+        # A broad-equity sleeve is a different animal: index-like return, a
+        # third of crypto's volatility, and only partly correlated with bitcoin
+        # (through its tech tilt). Modelling it as one asset is right at this
+        # granularity - a sleeve that is mostly VTI/S&P plus mega-cap tech has
+        # one dominant factor, and pretending twenty tickers are twenty bets
+        # would add parameters without adding information.
+        rng_eq = np.random.default_rng(a.seed + 7)
+        btc_logret = np.diff(
+            np.concatenate(
+                [np.full((n_paths, 1), np.log(spot["BTC"])), np.log(paths["BTC"])],
+                axis=1,
+            ),
+            axis=1,
+        )
+        # Center the BTC shock so the equity sleeve borrows bitcoin's wiggle,
+        # not its drift - its own return comes from equity_median_cagr alone.
+        btc_shock = btc_logret - btc_logret.mean(axis=0, keepdims=True)
+        idio_var = equity_sigma**2 - (equity_beta_to_btc * 0.45) ** 2
+        idio = rng_eq.standard_normal((n_paths, horizon_days)) * (
+            np.sqrt(max(idio_var, 0.0)) / np.sqrt(365.25)
+        )
+        inc = (
+            np.log1p(equity_median_cagr) / 365.25
+            + equity_beta_to_btc * btc_shock
+            + idio
+        )
+        value += equity_value * np.exp(np.cumsum(inc, axis=1))
 
     reached = np.maximum.accumulate(value, axis=1) >= target_value
     ever = reached[:, -1]
@@ -351,7 +384,9 @@ def portfolio_crossing(
         quarters[k] = quarters.get(k, 0) + 1
 
     return {
-        "start_value": float(sum(positions[k] * spot.get(k, 0.0) for k in positions)),
+        "start_value": float(
+            sum(positions[k] * spot.get(k, 0.0) for k in positions) + equity_value
+        ),
         "prob_reached": p,
         "median": q(50),
         "windows": {
