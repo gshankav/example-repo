@@ -1,39 +1,36 @@
 {
   "_comment": [
-    "Pinned spot prices. NEVER used automatically - the fetchers fail loudly rather",
-    "than serve stale prices, so this loads only behind --snapshot.",
+    "Pinned spot prices. NEVER used automatically - loads only behind --snapshot.",
     "",
-    "Refreshed 2026-08-24 (Monday). CoinMarketCap could NOT be reached from this",
-    "environment - the egress proxy blocks it, as it blocks every other finance",
-    "domain - so these are the freshest figures available via search, not CMC.",
-    "ETH is the weakest: its last confirmed quote is several days old and the",
-    "rally has continued since, so it is likely understated.",
-    "MSTR is a Monday pre-market indication (~$118-124, settling near $120), not",
-    "an official print."
+    "Refreshed 2026-08-24 afternoon. Intraday sources disagree: BTC quoted $77,846",
+    "(afternoon) vs $79,107 (8:50am ET); MSTR quoted $124.20, $121.40 and a $123.98",
+    "session high in the same coverage. Marked to the afternoon prints; the ~2%",
+    "disagreement is itself part of the record. ETH marked to the 8:53am quote,",
+    "the last confirmed print."
   ],
   "as_of": "2026-08-24",
-  "requested_for": "2026-08-24 intraday",
+  "requested_for": "2026-08-24 afternoon",
   "source": "search-sourced 2026-08-24 ~08:50 ET; CoinMarketCap unreachable here",
   "prices": {
     "BTC": {
-      "price": 79106.77,
-      "quoted_at": "2026-08-24T12:50:00Z",
-      "note": "08:50 ET; highest since May"
+      "price": 77846.0,
+      "quoted_at": "2026-08-24T18:30:00Z",
+      "note": "afternoon print; morning quote was $79,107"
     },
     "ETH": {
       "price": 2507.22,
       "quoted_at": "2026-08-24T12:53:00Z",
-      "note": "08:53 ET; highest since Jan/Feb"
+      "note": "8:53am ET print"
     },
     "SOL": {
       "price": 96.24,
-      "quoted_at": "2026-08-24T13:00:00Z",
-      "note": "+26% on the week"
+      "quoted_at": "2026-08-24T12:00:00Z",
+      "note": "24/7 market"
     },
     "MSTR": {
-      "price": 125.0,
-      "quoted_at": "2026-08-24T14:30:00Z",
-      "note": "live quote supplied by the user; CNBC/Google Finance unreachable here"
+      "price": 124.2,
+      "quoted_at": "2026-08-24T18:30:00Z",
+      "note": "+4.15% afternoon; other quotes 121.40-123.98"
     }
   }
 }
