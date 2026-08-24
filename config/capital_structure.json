@@ -1,6 +1,12 @@
 {
   "_comment": [
     "MSTR capital structure: claims ranking ahead of common stock. Consumed by",
+    "",
+    "Updated 2026-08-24: cash $4.80B -> $6.67B (USD Reserve +$300M, new USD Cash",
+    "account +$1.57B, both funded by the ATM raise). Preferred $15.50B -> $15.36B",
+    "after a $136.4M STRC repurchase - the first real step toward STRC trading back",
+    "at its $100 stated amount, which management said gates any dividend cut.",
+    "Converts unchanged and still far out of the money.",
     "pricemodel/valuation.py for net NAV, net mNAV and structural leverage. The daily",
     "email report does not read this file - its mNAV is gross by design.",
     "",
@@ -43,14 +49,14 @@
   "preferred": [
     {
       "name": "STRK / STRF / STRD / STRC perpetual preferred (aggregate notional)",
-      "liquidation_preference_usd": 15500000000,
-      "annual_dividend_usd": 1550000000
+      "liquidation_preference_usd": 15363600000,
+      "annual_dividend_usd": 1536000000
     }
   ],
-  "cash_usd": 4800000000,
+  "cash_usd": 6670000000,
   "other_assets_usd": 0,
-  "as_of": "2026-05-25",
+  "as_of": "2026-08-24",
   "verified": false,
-  "source": "public reporting as of 2026-08-22; not filing-verified",
+  "source": "2026-08-24 8-K via reporting; not read first-hand",
   "stale_after_days": 100
 }

@@ -12,28 +12,28 @@
     "an official print."
   ],
   "as_of": "2026-08-24",
-  "requested_for": "2026-08-24 pre-open",
-  "source": "search-sourced 2026-08-24; CoinMarketCap unreachable from this environment",
+  "requested_for": "2026-08-24 intraday",
+  "source": "search-sourced 2026-08-24 ~08:50 ET; CoinMarketCap unreachable here",
   "prices": {
     "BTC": {
-      "price": 75000.0,
-      "quoted_at": "2026-08-24T00:00:00Z",
-      "note": "~$75k after +22% week"
+      "price": 79106.77,
+      "quoted_at": "2026-08-24T12:50:00Z",
+      "note": "08:50 ET; highest since May"
     },
     "ETH": {
-      "price": 2425.44,
-      "quoted_at": "2026-08-22T16:42:00Z",
-      "note": "STALE - likely understated"
+      "price": 2507.22,
+      "quoted_at": "2026-08-24T12:53:00Z",
+      "note": "08:53 ET; highest since Jan/Feb"
     },
     "SOL": {
-      "price": 92.51,
-      "quoted_at": "2026-08-24T00:00:00Z",
-      "note": "24/7 market"
+      "price": 96.24,
+      "quoted_at": "2026-08-24T13:00:00Z",
+      "note": "+26% on the week"
     },
     "MSTR": {
-      "price": 120.0,
-      "quoted_at": "2026-08-24T12:00:00Z",
-      "note": "pre-market indication, not a print"
+      "price": 119.25,
+      "quoted_at": "2026-08-21T20:00:00Z",
+      "note": "STALE - Friday close; no live quote available"
     }
   }
 }

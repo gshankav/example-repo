@@ -301,20 +301,32 @@ def test_shipped_capital_structure_is_all_debt_at_current_prices():
 def test_shipped_config_reproduces_the_sourced_valuation():
     """Guards the sourced inputs against a careless edit.
 
-    The expected values were cross-checked against independently reported
-    figures: a gross multiple deep in discount territory, and a net multiple
-    near parity, which is what 'enterprise mNAV just above parity' means.
+    Figures are post the 2026-08-24 8-K: 18.26M shares issued into the ATM with
+    no bitcoin bought, so the share count is 382.84M against an unchanged
+    840,447 BTC, cash is $6.67B and preferred $15.36B after the STRC buyback.
     """
     cap = load_capital_structure()
     v = value(
-        btc_price=72_944.28, mstr_price=119.25,
-        btc_holdings=840_447, basic_shares=364_580_000, cap=cap,
+        btc_price=79_106.77, mstr_price=119.25,
+        btc_holdings=840_447, basic_shares=382_840_000, cap=cap,
     )
-    assert v["gross_mnav_diluted"] == pytest.approx(0.709, abs=0.005)
-    assert v["net_mnav"] == pytest.approx(0.990, abs=0.005)
-    assert v["btc_per_share"] == pytest.approx(0.0023052, abs=1e-6)
-    assert v["btc_price_at_par"] == pytest.approx(51_730, rel=1e-3)
-    assert v["structural_leverage"] == pytest.approx(1.396, abs=0.005)
+    assert v["gross_mnav_diluted"] == pytest.approx(0.687, abs=0.005)
+    assert v["net_mnav"] == pytest.approx(0.894, abs=0.005)
+    assert v["btc_per_share"] == pytest.approx(0.0021953, abs=1e-6)
+    assert v["btc_price_at_par"] == pytest.approx(54_321, rel=1e-3)
+
+
+def test_the_august_raise_was_dilutive_to_bitcoin_per_share():
+    """18.26M shares issued, zero bitcoin bought - the arithmetic of that.
+
+    Pinned because it is the concrete case of the rule the skill states: below
+    1.0x mNAV the ATM destroys per-share value rather than creating it. Anyone
+    reading the raise as bullish should have to make this test fail first.
+    """
+    before = 840_447 / 364_580_000
+    after = 840_447 / 382_840_000
+    assert after < before
+    assert after / before - 1 == pytest.approx(-0.0477, abs=0.001)
 
 
 def test_discount_makes_even_a_sub_par_multiple_imply_upside():
