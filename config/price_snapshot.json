@@ -31,9 +31,9 @@
       "note": "+26% on the week"
     },
     "MSTR": {
-      "price": 119.25,
-      "quoted_at": "2026-08-21T20:00:00Z",
-      "note": "STALE - Friday close; no live quote available"
+      "price": 125.0,
+      "quoted_at": "2026-08-24T14:30:00Z",
+      "note": "live quote supplied by the user; CNBC/Google Finance unreachable here"
     }
   }
 }

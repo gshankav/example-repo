@@ -213,3 +213,54 @@ def test_unreached_paths_are_counted_not_dropped():
     assert r["prob_reached"] < 0.5
     assert r["median"] is None
     assert r["windows"]["95%"] is None
+
+
+# --- portfolio crossing ---------------------------------------------------
+
+from pricemodel.longrun import portfolio_crossing  # noqa: E402
+
+POS = {"BTC": 13.37621385, "ETH": 17.73253442, "SOL": 155.8637964, "MSTR": 6512.003114}
+PSPOT = {"BTC": 79_106.77, "ETH": 2_507.22, "SOL": 96.24, "MSTR": 125.0}
+
+
+def _pf(target, **over):
+    a = Assumptions(**over)
+    return portfolio_crossing(a, PSPOT, POS, target, HOLDINGS, 382_840_000.0,
+                              0.687, START, horizon_days=3300, n_paths=2500)
+
+
+def test_start_value_is_the_marked_basket():
+    r = _pf(20e6)
+    expected = sum(POS[k] * PSPOT[k] for k in POS)
+    assert r["start_value"] == pytest.approx(expected)
+
+
+def test_bigger_targets_take_longer():
+    dates = [_pf(t)["median"] for t in (5e6, 10e6, 20e6)]
+    assert all(d is not None for d in dates)
+    assert dates == sorted(dates)
+
+
+def test_a_correlated_basket_beats_its_weakest_leg():
+    """The basket is not the slowest asset waiting on the others.
+
+    Every leg keys off bitcoin, so they rise together - which is also why the
+    diversification here buys much less smoothing than four tickers suggest.
+    """
+    basket = _pf(20e6)
+    sol_only = portfolio_crossing(
+        Assumptions(), PSPOT, {"SOL": POS["SOL"]}, 20e6 * POS["SOL"] * PSPOT["SOL"]
+        / sum(POS[k] * PSPOT[k] for k in POS), HOLDINGS, 382_840_000.0, 0.687,
+        START, horizon_days=3300, n_paths=2500)
+    assert basket["prob_reached"] >= sol_only["prob_reached"] - 0.15
+
+
+def test_windows_widen_with_confidence():
+    w = _pf(20e6)["windows"]
+    span = lambda k: (date.fromisoformat(w[k][1]) - date.fromisoformat(w[k][0])).days
+    assert span("50%") < span("80%") < span("95%")
+
+
+def test_an_unreachable_target_reports_no_median():
+    r = _pf(50e9)
+    assert r["prob_reached"] < 0.5 and r["median"] is None

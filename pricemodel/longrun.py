@@ -212,6 +212,9 @@ def project(
     }
     peak = np.maximum.accumulate(btc, axis=1)
     return {
+        # Full paths, so callers can value a basket over time rather than only
+        # reading endpoints.
+        "paths": {"BTC": btc, "ETH": alts["ETH"], "SOL": alts["SOL"], "MSTR": mstr},
         "quantiles": {
             k: {f"p{p}": float(np.percentile(v, p)) for p in (5, 25, 50, 75, 95)}
             for k, v in end.items()
@@ -299,4 +302,63 @@ def crossing_dates(
         "best_single_day_prob": (
             float(np.bincount(hit_days).max() / n_paths) if hit_days.size else 0.0
         ),
+    }
+
+
+def portfolio_crossing(
+    a: Assumptions,
+    spot: dict[str, float],
+    positions: dict[str, float],
+    target_value: float,
+    btc_holdings: float,
+    shares: float,
+    mnav_now: float,
+    start: date,
+    horizon_days: int = 4400,
+    n_paths: int = 20_000,
+) -> dict[str, Any]:
+    """When a basket of holdings first reaches a target value.
+
+    A portfolio is not the sum of its assets' individual crossing dates. The
+    positions are correlated, so the basket reaches a target sooner than any
+    single leg would suggest on its own, and diversification across assets that
+    all key off bitcoin buys far less smoothing than it appears to.
+
+    Returns the crossing date as a distribution, for the same reason
+    ``crossing_dates`` does: over years the spread is the answer.
+    """
+    sim = project(a, spot, btc_holdings, shares, mnav_now, start, horizon_days, n_paths)
+    paths = sim["paths"]
+    value = np.zeros_like(paths["BTC"])
+    for key, qty in positions.items():
+        value += qty * paths[key]
+
+    reached = np.maximum.accumulate(value, axis=1) >= target_value
+    ever = reached[:, -1]
+    p = float(ever.mean())
+    hit = np.where(ever, reached.argmax(axis=1) + 1, -1)
+    days = hit[hit > 0]
+
+    def q(pct: float) -> str | None:
+        if p < pct / 100.0 or days.size == 0:
+            return None
+        return (start + timedelta(days=int(np.percentile(days, pct / p)))).isoformat()
+
+    quarters: dict[str, int] = {}
+    for d in days:
+        dt = start + timedelta(days=int(d))
+        k = f"{dt.year}-Q{(dt.month - 1) // 3 + 1}"
+        quarters[k] = quarters.get(k, 0) + 1
+
+    return {
+        "start_value": float(sum(positions[k] * spot.get(k, 0.0) for k in positions)),
+        "prob_reached": p,
+        "median": q(50),
+        "windows": {
+            f"{int(c*100)}%": (q((0.5 - c / 2) * 100), q((0.5 + c / 2) * 100))
+            for c in (0.5, 0.8, 0.95)
+        },
+        "top_quarters": sorted(
+            ((k, v / n_paths) for k, v in quarters.items()), key=lambda kv: -kv[1]
+        )[:4],
     }

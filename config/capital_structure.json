@@ -2,7 +2,6 @@
   "_comment": [
     "MSTR capital structure: claims ranking ahead of common stock. Consumed by",
     "",
-    "Updated 2026-08-24: cash $4.80B -> $6.67B (USD Reserve +$300M, new USD Cash",
     "account +$1.57B, both funded by the ATM raise). Preferred $15.50B -> $15.36B",
     "after a $136.4M STRC repurchase - the first real step toward STRC trading back",
     "at its $100 stated amount, which management said gates any dividend cut.",
@@ -30,7 +29,17 @@
     "",
     "cash_usd: the $4.8B USD reserve reported 2026-08-17.",
     "other_assets_usd: 0 - the software business is small and not independently valued",
-    "  here. Leaving it at zero understates net NAV slightly, which is the safe side."
+    "  here. Leaving it at zero understates net NAV slightly, which is the safe side.",
+    "",
+    "Exact 2026-08-24 8-K figures (strategy.com): USD Reserve raised to $5.10B,",
+    "new USD Cash of $1.59B (total $6.69B), $136M of STRC repurchased. The company",
+    "states ~4% of total BTC supply and ~0% NET LEVERAGE.",
+    "",
+    "That net-leverage claim reconciles exactly here: $6.70B of converts against",
+    "$6.69B of cash nets to ~zero. It is a true statement about DEBT. It excludes",
+    "the $15.36B preferred stack, which does not count as leverage but does rank",
+    "ahead of common - so '0% net leverage' and 'net mNAV below 1' are both true at",
+    "the same time, and the second is the one that bears on the equity."
   ],
   "convertible_notes": [
     {
@@ -53,7 +62,7 @@
       "annual_dividend_usd": 1536000000
     }
   ],
-  "cash_usd": 6670000000,
+  "cash_usd": 6690000000,
   "other_assets_usd": 0,
   "as_of": "2026-08-24",
   "verified": false,
